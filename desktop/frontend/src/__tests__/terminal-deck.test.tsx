@@ -71,7 +71,7 @@ describe("terminal deck", () => {
   afterEach(cleanup);
 
   it("picks the smallest split that holds the panes", () => {
-    expect([0, 1, 2, 3, 4, 5, 7, 8, 9].map(splitFor)).toEqual([1, 1, 2, 4, 4, 6, 8, 8, 8]);
+    expect([0, 1, 2, 3, 4, 5, 6, 7, 9].map(splitFor)).toEqual([1, 1, 2, 3, 4, 6, 6, 6, 6]);
   });
 
   it("a session opens with its terminals as it was left: T1 is the session", async () => {
@@ -131,7 +131,7 @@ describe("terminal deck", () => {
     render(<TerminalDeck activeSession={parent} onFocusSession={vi.fn()} />);
     await waitFor(() => expect(shown()[0]).toBe("P"));
     const picker = screen.getByRole("radiogroup", { name: "Bölme" });
-    expect(Array.from(picker.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["1", "2", "4", "6", "8"]);
+    expect(Array.from(picker.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["1", "2", "3", "4", "6"]);
     fireEvent.click(screen.getByRole("radio", { name: /4/ }));
     await waitFor(() => expect(chats()).toHaveLength(4));
     await waitFor(() => expect((saved as { split: number } | null)?.split).toBe(4));

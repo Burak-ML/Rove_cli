@@ -29,7 +29,8 @@ describe("ssh discovery", () => {
   it("finds this computer's servers and adds the picked ones", async () => {
     localStorage.setItem("aether.sshHosts", JSON.stringify([{ host: "lab", hostName: "192.168.1.20", authMethod: "agent" }]));
     render(<Settings onClose={() => {}} initialSection="servers" />);
-    fireEvent.click(await screen.findByRole("button", { name: /Bu bilgisayardaki sunucuları bul/ }));
+    // adding opens on what this computer already knows
+    fireEvent.click(await screen.findByRole("button", { name: /Sunucu ekle/ }));
     const found = await screen.findByRole("group", { name: "Bulunan sunucular" });
     const rows = () => Array.from(found.querySelectorAll(".ssh-found-row")) as HTMLElement[];
     expect(rows().map((r) => r.querySelector("strong")?.textContent)).toEqual(["prod", "lab", "203.0.113.9"]);

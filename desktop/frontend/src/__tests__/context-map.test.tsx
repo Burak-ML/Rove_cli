@@ -14,18 +14,6 @@ vi.mock("../lib/rpc", () => ({
       case "ctxmap.get": return { nodes: [{ sessionId: "A", x: 0, y: 0 }, { sessionId: "B", x: 500, y: 0 }, ...agentNodes], links: [] };
       case "ctxmap.link": return { id: "L1", sessionA: "A", sessionB: "B", direction: "both", auto: true };
       case "ctxmap.updateLink": return { id: "L1", sessionA: "A", sessionB: "B", direction: "both", auto: true, ...(params as object) };
-      case "staff.watches": return watches;
-      case "staff.handoffs": return handoffs;
-      case "staff.handoffSave": {
-        const h = { id: "H1", instruction: "", dailyLimit: 10, enabled: true, ...(params as object) };
-        handoffs = [h];
-        return h;
-      }
-      case "staff.watchSave": {
-        const w = { id: "W1", instruction: "", dailyLimit: 10, enabled: true, ...(params as object) };
-        watches = [w];
-        return w;
-      }
       default: return [];
     }
   }),
@@ -42,8 +30,6 @@ vi.mock("../hooks/useApi", () => ({
 }));
 vi.mock("../hooks/useStaff", () => ({ useStaff: () => ({ members: [], reload: vi.fn() }) }));
 let agentNodes: { sessionId: string; x: number; y: number }[] = [];
-let watches: unknown[] = [];
-let handoffs: unknown[] = [];
 // the Masaüstü chat is held with an Agent-space agent
 vi.mock("../hooks/usePersona", () => ({
   usePersonaBadges: () => ({ badgeFor: (id: string) => (id === "B" ? { name: "Ayşe", profileId: "P1", mark: "squircle:prompt", color: "#3987e5" } : null) }),
@@ -69,7 +55,7 @@ if (typeof window.PointerEvent === "undefined") {
 const at = (x: number, y: number) => ({ clientX: x + 80, clientY: y + 80, button: 0, pointerId: 1 });
 
 describe("Session Map: drawing a cable", () => {
-  beforeEach(() => { calls.length = 0; agentNodes = []; watches = []; handoffs = []; try { localStorage.clear(); } catch { /* none */ } });
+  beforeEach(() => { calls.length = 0; agentNodes = []; try { localStorage.clear(); } catch { /* none */ } });
   afterEach(cleanup);
 
   // the cards by their titles: Web stands at (0, 0), Masaüstü at (500, 0)
@@ -118,38 +104,6 @@ describe("Session Map: drawing a cable", () => {
     expect(calls.some(([m]) => m === "ctxmap.link")).toBe(false);
   });
 
-  // An agent on the map watches a chat: the cable from the chat to the
-  // agent is a watch, edited in its own panel, and goes with either card.
-  it("a cable from a chat to an agent makes the agent watch the chat", async () => {
-    agentNodes = [{ sessionId: "agent:P1", x: 0, y: 300 }];
-    render(<ContextMap />);
-    await waitFor(() => expect(document.querySelector('[data-agent="P1"]')).toBeTruthy());
-    const agent = document.querySelector('[data-agent="P1"]') as HTMLElement;
-    expect(agent.textContent).toContain("Ayşe");
-    expect(agent.textContent).toContain("Test uzmanı");
-    // drawn from the agent's edge to the chat: still the agent watches the chat
-    const s = agent.closest(".cmap-world")!.parentElement as HTMLElement;
-    fireEvent.pointerDown(agent, at(CARD_W / 2, 300 + 3));
-    fireEvent.pointerMove(s, at(CARD_W / 2, CARD_H / 2));
-    await act(async () => { fireEvent.pointerUp(s, at(CARD_W / 2, CARD_H / 2)); });
-    await waitFor(() => expect(calls.find(([m]) => m === "staff.watchSave")?.[1]).toEqual({ sessionId: "A", profileId: "P1" }));
-    expect(calls.some(([m]) => m === "ctxmap.link")).toBe(false);
-    // the watch is drawn and its panel opens
-    await waitFor(() => expect(document.querySelector('[data-watch="W1"]')).toBeTruthy());
-    const panel = await waitFor(() => {
-      const el = document.querySelector(".cmap-watch-panel") as HTMLElement | null;
-      expect(el).toBeTruthy();
-      return el!;
-    });
-    const ins = panel.querySelector("textarea")!;
-    fireEvent.change(ins, { target: { value: "Testleri gözden geçir" } });
-    await act(async () => { fireEvent.blur(ins); });
-    await waitFor(() => expect(calls.filter(([m]) => m === "staff.watchSave").pop()?.[1]).toMatchObject({ id: "W1", instruction: "Testleri gözden geçir" }));
-    // taking the agent off the map takes its watch with it
-    await act(async () => { fireEvent.click(agent.querySelector(".cmap-card-x")!); });
-    await waitFor(() => expect(calls.find(([m]) => m === "staff.watchDelete")?.[1]).toEqual({ id: "W1" }));
-  });
-
   it("cards cannot be dragged into one another", async () => {
     render(<ContextMap />);
     const [a] = await cards();
@@ -186,27 +140,5 @@ describe("Session Map: drawing a cable", () => {
     await act(async () => { fireEvent.click(orange); });
     await waitFor(() => expect(calls.find(([m]) => m === "ctxmap.updateLink")?.[1]).toEqual({ id: "L1", color: "orange" }));
     await waitFor(() => expect((document.querySelector(".cmap-wire-core") as SVGElement).style.stroke).toBe("var(--cc-orange)"));
-  });
-
-  it("a cable from one agent to another pairs them: the first's finished work goes on to the second", async () => {
-    agentNodes = [{ sessionId: "agent:P2", x: 0, y: 300 }, { sessionId: "agent:P1", x: 500, y: 300 }];
-    render(<ContextMap />);
-    await waitFor(() => expect(document.querySelectorAll(".cmap-agent")).toHaveLength(2));
-    const ali = document.querySelector('[data-agent="P2"]') as HTMLElement;
-    const s = ali.closest(".cmap-world")!.parentElement as HTMLElement;
-    fireEvent.pointerDown(ali, at(CARD_W - 3, 300 + CARD_H / 2));
-    fireEvent.pointerMove(s, at(560, 340));
-    await act(async () => { fireEvent.pointerUp(s, at(560, 340)); });
-    await waitFor(() => expect(calls.find(([m]) => m === "staff.handoffSave")?.[1]).toEqual({ fromId: "P2", toId: "P1" }));
-    await waitFor(() => expect(document.querySelector('[data-handoff="H1"]')).toBeTruthy());
-    const panel = await waitFor(() => {
-      const el = document.querySelector('.cmap-watch-panel[aria-label="Devretme"]') as HTMLElement | null;
-      expect(el).toBeTruthy();
-      return el!;
-    });
-    expect(panel.textContent).toContain("Ali → Ayşe");
-    // taking Ali off the map takes the pairing with him
-    await act(async () => { fireEvent.click(ali.querySelector(".cmap-card-x")!); });
-    await waitFor(() => expect(calls.find(([m]) => m === "staff.handoffDelete")?.[1]).toEqual({ id: "H1" }));
   });
 });

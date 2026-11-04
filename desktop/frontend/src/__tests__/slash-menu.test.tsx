@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Session } from "../lib/types";
@@ -139,6 +139,38 @@ describe("slash menu", () => {
     fireEvent.keyDown(search, { key: "Enter" });
     await waitFor(() => expect(calls.filter(([m]) => m === "session.setModel").pop()?.[1]).toEqual({ sessionId: "S", provider: "anthropic", model: "claude-sonnet-5" }));
     await waitFor(() => expect(menu()).toBeNull());
+  });
+
+  it("a provider folds away, and a search still finds what it holds", async () => {
+    localStorage.removeItem("rove.models.prefs");
+    await open();
+    fireEvent.click(document.querySelector(".model-pill") as HTMLElement);
+    await waitFor(() => expect(menu()).toBeTruthy());
+    const rows = () => Array.from(menu()!.querySelectorAll(".slash-row code")).map((c) => c.textContent);
+    expect(rows()).toContain("claude-sonnet-5");
+    fireEvent.click(Array.from(menu()!.querySelectorAll(".model-group")).find((g) => g.textContent?.includes("anthropic"))!);
+    expect(rows()).not.toContain("claude-sonnet-5");
+    const search = document.querySelector(".model-search input") as HTMLInputElement;
+    fireEvent.change(search, { target: { value: "sonnet" } });
+    expect(rows()).toContain("claude-sonnet-5");
+    localStorage.removeItem("rove.models.prefs");
+  });
+
+  it("Edit models opens the Models window, and a model switched off leaves the picker", async () => {
+    localStorage.removeItem("rove.models.prefs");
+    await open();
+    fireEvent.click(document.querySelector(".model-pill") as HTMLElement);
+    await waitFor(() => expect(menu()).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Modelleri düzenle/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Modeller" });
+    const row = (await within(dialog).findByText("claude-sonnet-5")).closest("label")!;
+    fireEvent.click(within(row).getByRole("switch"));
+    fireEvent.click(within(dialog).getByTitle("Kapat"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(document.querySelector(".model-pill") as HTMLElement);
+    await waitFor(() => expect(menu()).toBeTruthy());
+    expect(Array.from(menu()!.querySelectorAll(".slash-row code")).map((c) => c.textContent)).not.toContain("claude-sonnet-5");
+    localStorage.removeItem("rove.models.prefs");
   });
 
   it("/models <name> sets it straight away when the name is clear", async () => {

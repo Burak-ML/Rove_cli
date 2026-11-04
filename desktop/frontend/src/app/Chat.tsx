@@ -11,6 +11,11 @@ import { toast } from "~/lib/toast";
 import wordmarkLogo from "~/assets/logo-256.png";
 import { Thinking } from "./Thinking";
 import { useCharacterName, usePersona, usePersonaBadges } from "~/hooks/usePersona";
+import { APP_VERSION } from "~/lib/version";
+import { splitAsk } from "~/lib/ask";
+import { AskCard } from "./AskCard";
+import { ModelsDialog } from "./ModelsDialog";
+import { modelKey, useModelPrefs } from "~/hooks/useModelPrefs";
 import { loadModes, sessionMode, spaceOf, type ChatMode } from "~/lib/spaces";
 import { ago } from "./SessionSidebar";
 import { filterFiles, imageToDataUrl, isImage, MAX_IMAGES, mentionAt, mentionedPaths, splitContext, withFiles, type ImageAttachment } from "~/lib/attachments";
@@ -95,7 +100,7 @@ interface Props {
   // set when this chat is one terminal of a multi-terminal session: its
   // label (T2) and the session it belongs to
   pane?: { label: string; groupId: string };
-  // Orchestra: the open subagent channel's bar, over the message box in place of the agent chip
+  // Orchestra: the open subagent channel's bar, over the message box
   team?: ReactNode;
   // the chat's subagents at work, over everything else in the message box
   dock?: ReactNode;
@@ -104,12 +109,13 @@ interface Props {
   space?: "office" | "chat";
   // a Code session's mode: /session offers only sessions of this mode
   mode?: ChatMode;
+  // the agent (profile id) an open draft will talk to, named before its
+  // first message makes it a session
+  draftAgent?: string | null;
 }
 
-const APP_VERSION = "0.2.10";
 
-
-export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, onOpenContext, variant = "agent", onFocusPane, workspacePath, draft, onCreateSession, onNewDraft, pane, team, dock, space: where, mode }: Props) {
+export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, onOpenContext, variant = "agent", onFocusPane, workspacePath, draft, onCreateSession, onNewDraft, pane, team, dock, space: where, mode, draftAgent }: Props) {
   // commands that apply here: the terminal's, or the chat's
   const scope: SlashScope = pane ? "terminal" : "chat";
   const { lang } = usePrefs();
@@ -187,6 +193,7 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
   // typed is put aside while its box filters models, then given back
   const [modelsFromPill, setModelsFromPill] = useState(false);
   const [modelQuery, setModelQuery] = useState("");
+  const [editingModels, setEditingModels] = useState(false);
   const stashed = useRef<string | null>(null);
   // /session: the open list of chats to switch to (null when closed)
   const [pickSessions, setPickSessions] = useState<Session[] | null>(null);
@@ -243,18 +250,19 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
   const charName = useCharacterName();
   const { profiles } = useProfiles();
   // an office agent: its own name and logo
-  const agentProfile = persona?.persona.profileId ? profiles.find((p) => p.id === persona.persona.profileId) ?? null : null;
+  const agentId = activeSession ? persona?.persona.profileId : draftAgent;
+  const agentProfile = agentId ? profiles.find((p) => p.id === agentId) ?? null : null;
   // the chat's agent, in the app's language (an office agent keeps the name it was given)
   const agentName = agentProfile ? agentProfile.name : persona ? charName(persona.persona.characterId, persona.persona.name ?? "") : "";
-  const agentBadge = agentProfile
-    ? <AgentMark mark={agentProfile.mark} color={agentProfile.color} seed={agentProfile.id} character={agentProfile.characterId} size={16} />
-    : <Avatar name={agentName} size="xs" accent />;
   // live run state, for runs started here or anywhere else (relays, panes)
   const [liveBlocks, setLive] = useState<Block[]>([]);
 
   // the agent is working: it has been asked, or it is answering, or a tool of
   // its is running somewhere
   const busy = sending || Boolean(streaming) || liveBlocks.length > 0;
+  const agentBadge = agentProfile
+    ? <AgentMark mark={agentProfile.mark} color={agentProfile.color} seed={agentProfile.id} character={agentProfile.characterId} size={18} status={busy ? "running" : null} />
+    : <Avatar name={agentName} size="xs" accent />;
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [streamChars, setStreamChars] = useState(0);
 
@@ -523,9 +531,20 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
   // Opened from the model button, the menu has its own search box; typed
   // as /models, the message box is the search.
   const modelSearch = modelsFromPill ? modelQuery : input;
+  // the list leaves out what was switched off in the Models window, but never
+  // the model in use; a search looks inside folded providers too
+  const { prefs: modelPrefs, save: saveModelPrefs } = useModelPrefs();
+  const usable = (models ?? []).filter((m) => !modelPrefs.hidden.includes(modelKey(m)) || (m.model === chatModel?.model && (!chatModel.provider || m.provider === chatModel.provider)));
+  const listed = filterModels(usable, modelSearch);
+  const folded = (provider: string) => !modelSearch.trim() && modelPrefs.folded.includes(provider);
   const modelRows: ModelChoice[] = models
-    ? [...(chatModel?.source === "chat" ? [RESET] : []), ...filterModels(models, modelSearch)]
+    ? [...(chatModel?.source === "chat" ? [RESET] : []), ...listed.filter((m) => !folded(m.provider))]
     : [];
+  const toggleFold = (provider: string) => {
+    const on = modelPrefs.folded.includes(provider);
+    saveModelPrefs({ ...modelPrefs, folded: on ? modelPrefs.folded.filter((p) => p !== provider) : [...modelPrefs.folded, provider] });
+    setSlashHi(0);
+  };
 
   // what this chat runs on (its own pick, its profile's, or its agent's)
   useEffect(() => {
@@ -1339,6 +1358,26 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
   const modelLabel = shown?.model ?? NO_MODEL;
   const modelProvider = shown?.provider ?? "";
   const isCurrent = (m: ModelChoice) => Boolean(chatModel && m.model === chatModel.model && (!chatModel.provider || !m.provider || m.provider === chatModel.provider));
+  const modelRowEl = (m: ModelChoice, i: number) => (
+    <button
+      key={`${m.provider}/${m.model}`}
+      type="button"
+      role="option"
+      aria-selected={i === slashHi}
+      className={`slash-row${i === slashHi ? " active" : ""}${isCurrent(m) ? " current" : ""}`}
+      onMouseMove={() => i !== slashHi && setSlashHi(i)}
+      onClick={() => { void chooseModel(m); taRef.current?.focus(); }}
+    >
+      {m.model ? (
+        <>
+          <code>{m.model}</code>
+          {isCurrent(m) && <span className="slash-check">✓</span>}
+        </>
+      ) : (
+        <code className="slash-reset">↺ {t("slashModelDefault", lang)}</code>
+      )}
+    </button>
+  );
   const modelMenuEl = models ? (
     <div className={`slash-menu model-menu${modelsFromPill ? " from-pill" : ""}`} role="listbox" aria-label={t("slashModels", lang)} ref={menuRef}>
       <div className="slash-head">
@@ -1379,35 +1418,33 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
           </button>
         ))}
       </div>
-      {modelRows.length === 0 && <div className="slash-empty">{t("noneYet", lang)}</div>}
-      {modelRows.map((m, i) => (
-        <Fragment key={`${m.provider}/${m.model}`}>
-          {/* models are grouped under their provider */}
-          {m.model && m.provider !== modelRows[i - 1]?.provider && (
-            <div className="model-group">
-              {m.provider}
-              {m.default && <span> · {t("slashModelDefaultProvider", lang)}</span>}
-            </div>
-          )}
-          <button
-            type="button"
-            role="option"
-            aria-selected={i === slashHi}
-            className={`slash-row${i === slashHi ? " active" : ""}${isCurrent(m) ? " current" : ""}`}
-            onMouseMove={() => i !== slashHi && setSlashHi(i)}
-            onClick={() => { void chooseModel(m); taRef.current?.focus(); }}
-          >
-            {m.model ? (
-              <>
-                <code>{m.model}</code>
-                {isCurrent(m) && <span className="slash-check">✓</span>}
-              </>
-            ) : (
-              <code className="slash-reset">↺ {t("slashModelDefault", lang)}</code>
-            )}
-          </button>
-        </Fragment>
-      ))}
+      {listed.length === 0 && modelRows.length === 0 && <div className="slash-empty">{t("noneYet", lang)}</div>}
+      {modelRows[0] && !modelRows[0].model && modelRowEl(modelRows[0], 0)}
+      {/* models are grouped under their provider, which folds away */}
+      {[...new Set(listed.map((m) => m.provider))].map((provider) => {
+        const all = listed.filter((m) => m.provider === provider);
+        const shut = folded(provider);
+        return (
+          <Fragment key={provider}>
+            <button
+              type="button"
+              className={`model-group${shut ? " shut" : ""}`}
+              aria-expanded={!shut}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => toggleFold(provider)}
+            >
+              <Icon name="chevronDown" size={12} />
+              {provider}
+              {all[0].default && <span> · {t("slashModelDefaultProvider", lang)}</span>}
+              {shut && <em>{all.length}</em>}
+            </button>
+            {!shut && all.map((m) => modelRowEl(m, modelRows.indexOf(m)))}
+          </Fragment>
+        );
+      })}
+      <button type="button" className="model-edit" onMouseDown={(e) => e.preventDefault()} onClick={() => { closeModels(); setEditingModels(true); }}>
+        <Icon name="settings" size={13} /> {t("modelsEdit", lang)}
+      </button>
     </div>
   ) : null;
 
@@ -1507,12 +1544,38 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
   ) : null;
 
   // Which folder the agent is about to touch. It is the one thing you cannot
-  // afford to guess about. A Code session's bar above names it already, so
-  // there the message box stays one line; elsewhere it shows here.
-  const folderEl = workspacePath && where !== "chat" ? (
+  // afford to guess about. A Code session's bar above names it already; an
+  // Agent chat names it beside the agent, at the top. The root folder ("/")
+  // names nothing: only a real project shows.
+  const folderName = workspacePath?.split("/").filter(Boolean).pop();
+  const folderEl = folderName && where !== "chat" ? (
     <span className="persona-chip static folder-chip" title={workspacePath}>
-      <Icon name="folder" size={11} /> {workspacePath.split("/").filter(Boolean).pop() || workspacePath}
+      <Icon name="folder" size={11} /> {folderName}
     </span>
+  ) : null;
+
+  // who this chat talks to, fixed for the chat and picked in the Agents tab:
+  // a small label over the conversation, so the message box stays one line.
+  // Code sessions have no role, so nothing to name.
+  const onAgent = where === "office";
+  const agentBarEl = onAgent && (agentProfile || (activeSession && persona)) ? (
+    <div className="thread-agent">
+      {agentBadge}
+      <span className="persona-chip-name">{agentName || t("agentGeneral", lang)}</span>
+      {folderEl}
+      {rulesEl}
+    </div>
+  ) : null;
+
+  const micEl = voiceSupported ? (
+    <button
+      type="button"
+      className={`icon-ghost mic-btn${listening ? " listening" : ""}`}
+      aria-label={t(listening ? "stop" : "voiceInput", lang)}
+      onClick={() => listening ? stopVoice() : startVoice()}
+    >
+      <Icon name="mic" size={15} />
+    </button>
   ) : null;
 
   const reviewEl = reviewOpen && activeSession ? (
@@ -1627,13 +1690,14 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
           </button>
         </div>
       {reviewEl}
+      {editingModels && <ModelsDialog lang={lang} onClose={() => setEditingModels(false)} />}
       </div>
     );
   }
 
   return (
     <div
-      className="thread"
+      className={`thread${onAgent ? " thread-office" : ""}`}
       ref={threadRef}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
@@ -1643,6 +1707,7 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
         if (e.dataTransfer.files.length) void attachFiles(e.dataTransfer.files);
       }}
     >
+      {agentBarEl}
       {pinned && (
         <div className="thread-pin" title={pinned} style={pinBox ? { left: pinBox.left, width: pinBox.width } : undefined}>
           {pinned}
@@ -1657,7 +1722,7 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
           </div>
         ) : (
           <div className="transcript">
-            {allMessages.map((m) => {
+            {allMessages.map((m, i) => {
               const isUser = m.role === "user";
               const streamingMsg = "streaming" in m;
               if (!streamingMsg && "kind" in m && m.kind === "summary") {
@@ -1672,6 +1737,9 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
                 );
               }
               const shown = isUser ? splitContext(m.content) : null;
+              // an agent's question with set answers shows as a card
+              const asked = onAgent && !isUser ? splitAsk(m.content) : null;
+              const reply = asked ? asked.body : m.content;
               const pics = !streamingMsg && "images" in m ? m.images ?? [] : [];
               return (
                 <div key={m.id} className={isUser ? "turn turn-user" : "turn turn-assistant"} data-role={m.role} data-prompt={isUser && shown ? firstLine(shown.text) : undefined}>
@@ -1692,11 +1760,20 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
                     </UserPlate>
                   ) : (
                     <div className={`assistant-copy${streamingMsg ? " streaming" : ""}`}>
-                      {m.content ? <Markdown text={m.content} /> : (streamingMsg ? "▍" : "")}
+                      {reply ? <Markdown text={reply} /> : (streamingMsg ? "▍" : "")}
                       {!streamingMsg && "toolCalls" in m && m.toolCalls && m.toolCalls.length > 0 && (
                         <ToolRows calls={m.toolCalls} results={toolResults} lang={lang} />
                       )}
                     </div>
+                  )}
+                  {asked?.ask && (
+                    <AskCard
+                      ask={asked.ask}
+                      lang={lang}
+                      open={i === allMessages.length - 1 && !busy && !streamingMsg}
+                      onPick={(o) => void deliver(o, [])}
+                      onOther={() => taRef.current?.focus()}
+                    />
                   )}
                   {!streamingMsg && m.content && (
                     <button
@@ -1712,7 +1789,13 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
                 </div>
               );
             })}
-            {busy && !streaming && <Thinking label={live} lang={lang} />}
+            {busy && !streaming && (
+              <Thinking
+                label={live}
+                lang={lang}
+                who={agentProfile ? <AgentMark mark={agentProfile.mark} color={agentProfile.color} seed={agentProfile.id} character={agentProfile.characterId} size={34} thinking /> : undefined}
+              />
+            )}
             <div className="thread-tail" style={{ height: tail }} />
             <div ref={bottomRef} />
           </div>
@@ -1740,21 +1823,7 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
         {activeSession && (
           <ChangesBar sessionId={activeSession.id} view={edits} setView={setEdits} onOpen={() => setReviewOpen(true)} lang={lang} />
         )}
-        {(team || folderEl || (activeSession && ((persona && where !== "chat") || rules.length > 0))) && (
-          <div className="persona-bar">
-            {team}
-            {/* who this chat talks to; fixed for the chat, picked in the Agents
-                tab. Code sessions have no role, so nothing to name. */}
-            {!team && persona && where !== "chat" && (
-              <span className="persona-chip static">
-                {agentBadge}
-                <span className="persona-chip-name">{agentName || t("agentGeneral", lang)}</span>
-              </span>
-            )}
-            {rulesEl}
-            {folderEl}
-          </div>
-        )}
+        {team && <div className="persona-bar">{team}</div>}
 
         <form className="composer-root" data-slot="composer-root" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           {slashMenuEl}
@@ -1798,16 +1867,7 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
                   >
                     +
                   </button>
-                  {voiceSupported && (
-                    <button
-                      type="button"
-                      className={`icon-ghost mic-btn${listening ? " listening" : ""}`}
-                      aria-label={t(listening ? "stop" : "voiceInput", lang)}
-                      onClick={() => listening ? stopVoice() : startVoice()}
-                    >
-                      <Icon name="mic" size={15} />
-                    </button>
-                  )}
+                  {!onAgent && micEl}
                 </div>
                 <textarea
                   ref={taRef}
@@ -1817,10 +1877,11 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
                   onChange={onType}
                   onPaste={onPaste}
                   onKeyDown={handleKeyDown}
-                  placeholder={activeAgent ? t("message", lang) : t("pickProfile", lang)}
+                  placeholder={!activeAgent ? t("pickProfile", lang) : onAgent && agentName ? t("messageTo", lang).replace("{n}", agentName) : t("message", lang)}
                   disabled={!canType}
                 />
                 <div className="composer-controls">
+                  {onAgent ? micEl : rulesEl}
                   <div className="composer-profile">
                     {/* the chat's model: shown here, changed here (like /models) */}
                     <button
@@ -1851,6 +1912,7 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
         </form>
       </div>
       {reviewEl}
+      {editingModels && <ModelsDialog lang={lang} onClose={() => setEditingModels(false)} />}
     </div>
   );
 }

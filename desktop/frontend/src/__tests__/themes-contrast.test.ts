@@ -80,4 +80,18 @@ describe("themes", () => {
     bootPrefs();
     expect(document.documentElement.dataset.theme).toBe("graphite");
   });
+
+  it("Rove's greys are the main theme: the old default moves to them once, a pick by hand stays", () => {
+    localStorage.clear();
+    bootPrefs();
+    expect(document.documentElement.dataset.theme).toBe("graphite");
+    localStorage.clear();
+    localStorage.setItem("aether.theme", "github");
+    bootPrefs();
+    expect(document.documentElement.dataset.theme).toBe("graphite");
+    // picked again after the move: kept
+    applyTheme("github");
+    bootPrefs();
+    expect(document.documentElement.dataset.theme).toBe("github");
+  });
 });

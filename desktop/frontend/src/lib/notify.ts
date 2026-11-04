@@ -74,14 +74,6 @@ export function watchFinishes(): () => void {
       void rpc<{ title: string; lastVerdict?: { reason?: string } }>("goal.get", { id: p.id }).then((g) =>
         notify(t(p.status === "done" ? "notifyGoalDone" : "notifyGoalBlocked", getLang()), p.status === "done" ? g.title : `${g.title} — ${g.lastVerdict?.reason ?? ""}`)).catch(() => {});
     }),
-    // an agent of the Agent space finished a task the user gave it: a
-    // notification when away, a toast when here
-    subscribeEvents("staff.updated", (ev) => {
-      const p = (ev.payload ?? {}) as { title?: string; status?: string; from?: string; name?: string };
-      if (p.from || !["done", "failed"].includes(p.status ?? "")) return;
-      const head = t(p.status === "done" ? "notifyTaskDone" : "notifyTaskFailed", getLang()).replace("{name}", p.name ?? "");
-      void notify(head, p.title ?? "").then((shown) => { if (!shown) toast(`${head}: ${p.title ?? ""}`, p.status === "done" ? "ok" : "err"); });
-    }),
     subscribeEvents("teamwork.updated", (ev) => {
       const p = (ev.payload ?? {}) as { sessionId?: string; status?: string };
       if (!p.sessionId || !["done", "failed"].includes(p.status ?? "")) return;

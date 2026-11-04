@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rpc } from "~/lib/rpc";
 import { localizeCatalog } from "~/lib/catalogI18n";
 import { usePrefs } from "./usePrefs";
@@ -41,11 +41,22 @@ export function useCharacterName() {
 
 export function usePersona(sessionId: string | null | undefined) {
   const [view, setView] = useState<PersonaView | null>(null);
+  // only the open chat's answer may land: an older chat's, arriving late,
+  // would put the wrong agent's name and logo on this one
+  const current = useRef(sessionId);
+  current.current = sessionId;
   const reload = useCallback(async () => {
     if (!sessionId) { setView(null); return; }
-    try { setView(await rpc<PersonaView>("persona.get", { sessionId })); } catch { setView(null); }
+    try {
+      const v = await rpc<PersonaView>("persona.get", { sessionId });
+      if (current.current === sessionId) setView(v);
+    } catch {
+      if (current.current === sessionId) setView(null);
+    }
   }, [sessionId]);
   useEffect(() => {
+    // nothing of the last chat's while this one's is on its way
+    setView(null);
     void reload();
     // a role picked elsewhere (/character in another terminal) shows here
     const on = () => void reload();

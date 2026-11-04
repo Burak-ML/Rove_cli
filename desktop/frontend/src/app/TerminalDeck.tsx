@@ -9,10 +9,11 @@ import { Icon } from "./Icons";
 import { Terminal } from "./Terminal";
 
 const SPLIT_KEY = "aether.term.split";
-// how many panes the deck is split into, picked at its top right
-const SPLITS = [1, 2, 4, 6, 8] as const;
+// how many panes the deck is split into, picked at its top right; past six
+// a pane is too narrow to read
+const SPLITS = [1, 2, 3, 4, 6] as const;
 type Split = (typeof SPLITS)[number];
-const MAX_PANES = 8;
+const MAX_PANES = 6;
 // the session's own terminal (T1) always has this key, so its conversation
 // stays mounted while a draft becomes the session
 const MAIN = "main";
@@ -66,7 +67,7 @@ interface Props {
 let paneSeq = 0;
 const newKey = () => `p${Date.now().toString(36)}${paneSeq++}`;
 
-// TerminalDeck is terminal mode: one session split into 1–8 terminals that
+// TerminalDeck is terminal mode: one session split into 1–6 terminals that
 // work as a team. The session itself is T1; the others are its terminals,
 // each with its own agent and role. They see what the others do, do not
 // edit a file another is editing, and can hand each other work (/to, @T2).
@@ -456,10 +457,10 @@ export function TerminalDeck({
   );
 }
 
-// SplitIcon draws a split's grid: n cells in 1, 2 (side by side) or two rows.
+// SplitIcon draws a split's grid: up to three side by side, more in two rows.
 function SplitIcon({ n }: { n: number }) {
-  const cols = n <= 2 ? n : n / 2;
-  const rows = n <= 2 ? 1 : 2;
+  const rows = n <= 3 ? 1 : 2;
+  const cols = Math.ceil(n / rows);
   const w = 14, h = 10, gap = 1.4;
   const cw = (w - gap * (cols - 1)) / cols, ch = (h - gap * (rows - 1)) / rows;
   const cells = [];

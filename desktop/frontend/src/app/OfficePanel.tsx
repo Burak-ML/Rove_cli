@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { rpc } from "~/lib/rpc";
-import type { AgentProfile, Character, PersonaCatalog, Session } from "~/lib/types";
+import type { AgentProfile, PersonaCatalog, Session } from "~/lib/types";
 import { useProfiles } from "~/hooks/useApi";
 import { usePersonaBadges, usePersonaCatalog } from "~/hooks/usePersona";
 import { usePrefs } from "~/hooks/usePrefs";
@@ -9,27 +9,21 @@ import { filterModels, type ModelChoice } from "~/lib/slash";
 import { t, type Lang } from "~/lib/i18n";
 import { toast } from "~/lib/toast";
 import { AgentMark, MarkSvg } from "./AgentMark";
-import { CharacterGrid, FeatureToggles } from "./PersonaSheet";
+import { AgentCreate } from "./AgentCreate";
+import { FeatureToggles } from "./PersonaSheet";
 import { Icon } from "./Icons";
 
 // What Settings → Office opens with: the list, a new agent, or one agent.
 export type OfficeIntent = { mode: "list" } | { mode: "new" } | { mode: "edit"; id: string };
 
+const CODE_FEATURES = ["write", "shell", "git"];
+
 type Draft = Partial<AgentProfile> & { name: string };
-type PromptKind = "character" | "extra" | "own";
-
-// promptKind reads what the saved fields mean: the character's prompt as
-// is, the character's with additions, or a prompt of the user's own.
-function promptKind(d: Draft): PromptKind {
-  if (!d.characterId) return "own";
-  if (d.promptMode === "own") return "own";
-  return d.systemPrompt?.trim() ? "extra" : "character";
-}
-
 // OfficePanel is Settings → Office: the agents of the user's office. Only
 // these appear when a chat is opened in Office; each one has its own logo,
-// a starting character (or none), a system prompt, a model from the models
-// the user has added, and its permissions — the defaults or its own.
+// a system prompt, a model from the models the user has added, and its
+// permissions — the defaults or its own. A new agent starts from a name and
+// a logo (AgentCreate); the rest is edited here.
 export function OfficePanel({ intent }: { intent?: OfficeIntent }) {
   const { lang } = usePrefs();
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -38,18 +32,18 @@ export function OfficePanel({ intent }: { intent?: OfficeIntent }) {
   const catalog = usePersonaCatalog();
   const { badgeFor } = usePersonaBadges();
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [creating, setCreating] = useState(false);
   const [armed, setArmed] = useState<string | null>(null);
 
   useEffect(() => {
     if (!intent || intent.mode === "list") return;
-    if (intent.mode === "new") setDraft({ name: "" });
+    if (intent.mode === "new") setCreating(true);
     else {
       const p = profiles.find((x) => x.id === intent.id);
       if (p) setDraft({ ...p });
     }
   }, [intent, profiles]);
 
-  const charOf = useCallback((id?: string) => catalog?.characters.find((c) => c.id === id), [catalog]);
   const chatsOf = (id: string) => sessions.filter((s) => badgeFor(s.id)?.profileId === id);
 
   const remove = async (p: AgentProfile) => {
@@ -86,21 +80,20 @@ export function OfficePanel({ intent }: { intent?: OfficeIntent }) {
           <h2>{t("ofTitle", lang)}</h2>
           <p className="split-lead">{t("ofLead", lang)}</p>
         </div>
-        <button type="button" className="primary" onClick={() => setDraft({ name: "" })}><Icon name="plus" size={13} /> {t("ofNew", lang)}</button>
+        <button type="button" className="primary" onClick={() => setCreating(true)}><Icon name="plus" size={13} /> {t("ofNew", lang)}</button>
       </div>
       {profiles.length === 0 ? (
         <div className="office-empty">
           <div className="office-empty-marks">
-            {SHAPES.slice(0, 5).map((s, i) => <MarkSvg key={s} m={{ shape: s, face: FACES[i], color: MARK_COLORS[i * 2] }} size={30} />)}
+            {SHAPES.slice(0, 5).map((s, i) => <MarkSvg key={s} m={{ shape: s, face: FACES[i % FACES.length], color: MARK_COLORS[i * 2] }} size={30} />)}
           </div>
           <strong>{t("ofEmpty", lang)}</strong>
           <p>{t("ofEmptyHint", lang)}</p>
-          <button type="button" className="primary" onClick={() => setDraft({ name: "" })}>{t("ofNew", lang)}</button>
+          <button type="button" className="primary" onClick={() => setCreating(true)}>{t("ofNew", lang)}</button>
         </div>
       ) : (
         <div className="office-list">
           {profiles.map((p) => {
-            const c = charOf(p.characterId);
             const n = chatsOf(p.id).length;
             return (
               <div key={p.id} className="office-row">
@@ -108,7 +101,7 @@ export function OfficePanel({ intent }: { intent?: OfficeIntent }) {
                 <button type="button" className="office-row-main" onClick={() => setDraft({ ...p })}>
                   <strong>{p.name}</strong>
                   <span className="office-row-meta">
-                    <span>{c ? c.name : t("ofOwnAgent", lang)}</span>
+                    <span>{p.title || t("ofOwnAgent", lang)}</span>
                     <span>·</span>
                     <span className="office-model">{p.model ? `${p.model}${p.provider ? ` · ${p.provider}` : ""}` : t("ofModelChat", lang)}</span>
                     <span>·</span>
@@ -131,6 +124,7 @@ export function OfficePanel({ intent }: { intent?: OfficeIntent }) {
           })}
         </div>
       )}
+      {creating && <AgentCreate lang={lang} onClose={() => setCreating(false)} onCreated={async () => { setCreating(false); await reload(); }} />}
     </div>
   );
 }
@@ -142,19 +136,16 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
   onCancel: () => void;
   onSaved: () => void | Promise<void>;
 }) {
-  const catalog = cat?.characters ?? [];
-  const features = cat?.features ?? [];
+  // writing code is the Code space's work: an agent never gets these
+  const features = (cat?.features ?? []).filter((f) => !CODE_FEATURES.includes(f.key));
   const defaults = cat?.defaults ?? [];
   const [d, setD] = useState<Draft>(start);
-  const [kind, setKind] = useState<PromptKind>(promptKind(start));
   const [models, setModels] = useState<ModelChoice[]>([]);
   const [mq, setMq] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [showPrompt, setShowPrompt] = useState(false);
   const seed = d.id ?? (d.name || "new");
   const mark = markOf(d.mark, d.color, seed, d.characterId);
-  const char = catalog.find((c) => c.id === d.characterId);
   const set = (patch: Partial<Draft>) => setD((x) => ({ ...x, ...patch }));
   // the MCP servers it can be given (Settings → MCP)
   const [servers, setServers] = useState<{ id: string; name: string }[]>([]);
@@ -187,12 +178,6 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
     return [...g.entries()];
   }, [shown]);
 
-  const pickCharacter = (c: Character | null) => {
-    set({ characterId: c?.id ?? "", role: c?.role ?? d.role, features: null, name: d.name.trim() ? d.name : c?.name ?? "" });
-    if (!c) setKind("own");
-    else if (kind === "own" && !d.systemPrompt?.trim()) setKind("character");
-  };
-
   const save = async () => {
     if (!d.name.trim()) { setErr(t("ofNameNeeded", lang)); return; }
     setBusy(true);
@@ -202,9 +187,11 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
       name: d.name.trim(),
       mark: markString(mark),
       color: mark.color,
-      promptMode: d.characterId && kind === "own" ? "own" : "",
-      systemPrompt: kind === "character" ? "" : (d.systemPrompt ?? ""),
-      role: d.role || char?.role || "developer",
+      // an agent no longer runs on a catalog character: saving lets go of one
+      characterId: "",
+      promptMode: "",
+      systemPrompt: d.systemPrompt ?? "",
+      role: d.role || "developer",
     };
     try {
       await rpc("profile.upsert", out);
@@ -217,7 +204,7 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
     }
   };
 
-  const effective = d.features ?? char?.features ?? defaults;
+  const effective = d.features ?? defaults;
 
   return (
     <div className="office office-editor">
@@ -233,9 +220,9 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
         {/* the agent as the office will show it */}
         <aside className="office-preview">
           <div className="office-card">
-            <MarkSvg m={mark} size={64} />
+            <MarkSvg m={mark} size={64} awake />
             <strong>{d.name.trim() || t("ofUnnamed", lang)}</strong>
-            <span>{char ? char.name : t("ofOwnAgent", lang)}</span>
+            <span>{d.title?.trim() || t("ofOwnAgent", lang)}</span>
             <span className="office-model">{d.model ? `${d.model}${d.provider ? ` · ${d.provider}` : ""}` : t("ofModelChat", lang)}</span>
           </div>
           <div className="office-mark-pick">
@@ -251,7 +238,7 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
             <div className="office-swatches">
               {FACES.map((f) => (
                 <button key={f} type="button" aria-pressed={mark.face === f} className={mark.face === f ? "on" : ""} onClick={() => setMark({ ...mark, face: f })}>
-                  <MarkSvg m={{ ...mark, face: f }} size={26} />
+                  <MarkSvg m={{ ...mark, face: f }} size={26} awake />
                 </button>
               ))}
             </div>
@@ -279,43 +266,9 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
           </section>
 
           <section>
-            <div className="office-label">{t("ofStart", lang)}</div>
-            <p className="office-hint">{t("ofStartHint", lang)}</p>
-            <CharacterGrid
-              catalog={cat}
-              compact
-              selected={d.characterId || undefined}
-              onPick={(c) => pickCharacter(c)}
-              onNone={() => pickCharacter(null)}
-            />
-          </section>
-
-          <section>
             <div className="office-label">{t("ofPrompt", lang)}</div>
-            {char && (
-              <div className="seg office-seg" role="radiogroup">
-                {(["character", "extra", "own"] as const).map((k) => (
-                  <button key={k} type="button" role="radio" aria-checked={kind === k} className={kind === k ? "on" : ""} onClick={() => setKind(k)}>
-                    {t(`ofPrompt_${k}`, lang)}
-                  </button>
-                ))}
-              </div>
-            )}
-            <p className="office-hint">{t(char ? `ofPromptHint_${kind}` : "ofPromptHint_blank", lang).replace("{c}", char?.name ?? "")}</p>
-            {char && kind !== "own" && (
-              <div className="office-base">
-                <button type="button" className="ghost" onClick={() => setShowPrompt((v) => !v)}>{showPrompt ? "▾" : "▸"} {t("ofBasePrompt", lang).replace("{c}", char.name)}</button>
-                {showPrompt && <pre>{char.prompt}</pre>}
-              </div>
-            )}
-            {kind !== "character" && (
-              <textarea
-                rows={kind === "extra" ? 4 : 9}
-                value={d.systemPrompt ?? ""}
-                placeholder={t(kind === "extra" ? "ofExtraPh" : "ofOwnPh", lang)}
-                onChange={(e) => set({ systemPrompt: e.target.value })}
-              />
-            )}
+            <p className="office-hint">{t("ofPromptHint_blank", lang)}</p>
+            <textarea rows={6} value={d.systemPrompt ?? ""} placeholder={t("ofOwnPh", lang)} onChange={(e) => set({ systemPrompt: e.target.value })} />
           </section>
 
           <section>
@@ -355,7 +308,7 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
               <button type="button" role="radio" aria-checked={d.features == null} className={d.features == null ? "on" : ""} onClick={() => set({ features: null })}>{t("ofPermsDefault", lang)}</button>
               <button type="button" role="radio" aria-checked={d.features != null} className={d.features != null ? "on" : ""} onClick={() => set({ features: [...effective] })}>{t("ofPermsCustom", lang)}</button>
             </div>
-            <p className="office-hint">{t(d.features == null ? "ofPermsDefaultHint" : "ofPermsCustomHint", lang).replace("{c}", char?.name ?? t("ofOwnAgent", lang))}</p>
+            <p className="office-hint">{t(d.features == null ? "ofPermsDefaultHint" : "ofPermsCustomHint", lang).replace("{c}", t("ofOwnAgent", lang))}</p>
             {d.features == null ? (
               <div className="office-perm-chips">
                 {features.filter((f) => effective.includes(f.key)).map((f) => <span key={f.key} className="tw-chip" title={f.desc}>{f.name}</span>)}

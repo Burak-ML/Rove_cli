@@ -39,7 +39,6 @@ describe("center panel children", () => {
   };
   it("stretches content but not the bars above it", () => {
     expect(rule(".center-panel > *")).toMatch(/flex:\s*1/);
-    expect(rule(".center-panel > .market-head")).not.toBe("");
   });
   it("Teamwork: orchestras scroll on the left, the conversation panel stands on the right", () => {
     // the cable to the panel is drawn against the Teamwork page, not the window

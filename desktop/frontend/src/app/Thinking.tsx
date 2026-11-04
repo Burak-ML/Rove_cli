@@ -1,4 +1,4 @@
-import type React from "react";
+import type { CSSProperties, ReactNode } from "react";
 import cloud from "~/assets/appicon-256.png";
 import { t, type Lang } from "~/lib/i18n";
 
@@ -10,10 +10,11 @@ import { t, type Lang } from "~/lib/i18n";
 //
 // The cloud is the icon with everything but the cloud clipped away, so the
 // dark tile behind it does not show as a square on the page.
-export function Thinking({ label, lang }: { label?: string; lang: Lang }) {
+// An agent's chat shows the agent itself thinking instead (who).
+export function Thinking({ label, lang, who }: { label?: string; lang: Lang; who?: ReactNode }) {
   return (
     <div className="thinking" role="status" aria-live="polite">
-      <ThinkCloud />
+      {who ?? <ThinkCloud />}
       <span className="think-word">{label || t("thinking", lang)}</span>
     </div>
   );
@@ -23,7 +24,7 @@ export function Thinking({ label, lang }: { label?: string; lang: Lang }) {
 // the terminal at the head of its working line. width is the cloud's in px.
 export function ThinkCloud({ width }: { width?: number }) {
   return (
-    <span className="think-cloud" aria-hidden style={width ? ({ "--cw": `${width}px` } as React.CSSProperties) : undefined}>
+    <span className="think-cloud" aria-hidden style={width ? ({ "--cw": `${width}px` } as CSSProperties) : undefined}>
       <img src={cloud} alt="" />
       <span className="think-cursor" />
       <span className="think-wave" />

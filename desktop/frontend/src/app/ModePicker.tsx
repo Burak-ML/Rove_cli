@@ -46,51 +46,22 @@ export function ModePicker({ lang, workspace, last, onPick }: Props) {
   return (
     <div className="mode-picker">
       <div className="mode-picker-inner">
-        <header className="mode-picker-head">
-          <span className="eyebrow">{t("newSessionTitle", lang)}</span>
-          <h1>{t("newSessionHeadline", lang)}</h1>
-          <p>{t("newSessionLead", lang)}</p>
-        </header>
-
-        <div className="mode-cards" role="list">
+        <h1>{t("newSessionTitle", lang)}</h1>
+        <div className="mode-list" role="list">
           {CHAT_MODES.map((m, i) => (
-            <button
-              key={m}
-              type="button"
-              role="listitem"
-              ref={i === 0 ? first : undefined}
-              className={`mode-card mode-${m}`}
-              onClick={() => onPick(m)}
-            >
-              <span className="mode-card-top">
-                <span className="mode-card-icon"><Icon name={MODE_ICON[m]} size={20} /></span>
-                {last === m && <span className="mode-card-tag">{t("modeLastUsed", lang)}</span>}
-                <kbd className="mode-card-key">{i + 1}</kbd>
+            <button key={m} type="button" role="listitem" ref={i === 0 ? first : undefined} className="mode-row" onClick={() => onPick(m)}>
+              <Icon name={MODE_ICON[m]} size={18} />
+              <span className="mode-row-text">
+                <strong>{t(`mode_${m}`, lang)}</strong>
+                <span>{t(`modeHint_${m}`, lang)}</span>
               </span>
-              <span className="mode-card-title">{t(`mode_${m}`, lang)}</span>
-              <span className="mode-card-hint">{t(`modeHint_${m}`, lang)}</span>
-              <ul className="mode-card-points">
-                {t(`modePoints_${m}`, lang).split("|").map((pt) => (
-                  <li key={pt}><Icon name="check" size={12} />{pt}</li>
-                ))}
-              </ul>
-              <span className="mode-card-go">
-                {t("modeStart", lang)} <Icon name="arrowRight" size={13} />
-              </span>
+              {last === m && <span className="mode-row-tag">{t("modeLastUsed", lang)}</span>}
             </button>
           ))}
         </div>
-
-        <footer className="mode-picker-foot">
-          <span className="mode-picker-ws" title={workspace?.path}>
-            <Icon name="folder" size={13} />
-            {workspace ? workspace.name : t("noWorkspacePicked", lang)}
-          </span>
-          <span className="mode-picker-lock">
-            <Icon name="lock" size={12} />
-            {t("modeFixedNote", lang)}
-          </span>
-        </footer>
+        <p className="mode-picker-note" title={workspace?.path}>
+          {workspace ? `${workspace.name} · ` : ""}{t("modeFixedNote", lang)}
+        </p>
       </div>
     </div>
   );

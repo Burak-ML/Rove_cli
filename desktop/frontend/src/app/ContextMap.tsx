@@ -8,35 +8,11 @@ import { usePrefs } from "~/hooks/usePrefs";
 import { toast } from "~/lib/toast";
 import { t, type Lang } from "~/lib/i18n";
 import { CARD_H, CARD_W, anchors, at, cable, cardRect, edge, fitView, freeSpot, hitCard, slide, spread, type Pt, type Rect } from "~/lib/cables";
-import { useProfiles } from "~/hooks/useApi";
-import { useStaff } from "~/hooks/useStaff";
 import { AgentMark } from "./AgentMark";
 import { spaceOf, type Space } from "~/lib/spaces";
 
 // how close to a card's border (in screen pixels) a press starts a cable
 const EDGE_PX = 14;
-
-// An Agent-space agent stands on the map as a card of its own, keyed
-// "agent:<profile id>"; a cable from a chat to it is a watch.
-const AGENT = "agent:";
-const isAgent = (id: string) => id.startsWith(AGENT);
-const profileOf = (id: string) => id.slice(AGENT.length);
-
-// A handoff: when one agent finishes, the other takes the work on
-// (internal/staff/handoff.go).
-export type Handoff = { id: string; fromId: string; toId: string; instruction: string; dailyLimit: number; enabled: boolean; color?: string };
-
-// A watch as the daemon keeps it (internal/staff/watch.go).
-export type Watch = {
-  id: string;
-  sessionId: string;
-  profileId: string;
-  instruction: string;
-  filter?: string;
-  dailyLimit: number;
-  enabled: boolean;
-  color?: string;
-};
 
 const DRAG_MIME = "application/x-rove-session";
 const CAM_KEY = "aether.ctxmap.cam";
@@ -92,23 +68,15 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
   const [typing, setTyping] = useState<Record<string, number>>({});
   const [pulses, setPulses] = useState<Pulse[]>([]);
   const [dropHint, setDropHint] = useState(false);
-  const { profiles } = useProfiles();
-  const { members } = useStaff();
-  const [watches, setWatches] = useState<Watch[]>([]);
-  const [selWatch, setSelWatch] = useState<string | null>(null);
-  const [handoffs, setHandoffs] = useState<Handoff[]>([]);
-  const [selHandoff, setSelHandoff] = useState<string | null>(null);
-  const profileById = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles]);
-
   const sessionById = useMemo(() => new Map(sessions.map((s) => [s.id, s])), [sessions]);
   const wsById = useMemo(() => new Map(workspaces.map((w: Workspace) => [w.id, w])), [workspaces]);
   const rects = useMemo(() => {
     const m = new Map<string, Rect>();
     for (const [id, p] of nodes) {
-      if (sessionById.has(id) || (isAgent(id) && profileById.has(profileOf(id)))) m.set(id, cardRect(p));
+      if (sessionById.has(id)) m.set(id, cardRect(p));
     }
     return m;
-  }, [nodes, sessionById, profileById]);
+  }, [nodes, sessionById]);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -126,14 +94,6 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
     }
   }, []);
 
-  const loadWatches = useCallback(async () => {
-    try { setWatches((await rpc<Watch[]>("staff.watches")) ?? []); } catch { /* keep */ }
-    try {
-      const h = await rpc<Handoff[]>("staff.handoffs");
-      setHandoffs(Array.isArray(h) ? h : []);
-    } catch { /* keep */ }
-  }, []);
-
   const loadRelays = useCallback(async () => {
     try {
       setRelays((await rpc<Relay[]>("ctxmap.relays", { limit: 30 })) ?? []);
@@ -144,10 +104,9 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
     void loadSessions();
     void loadMap();
     void loadRelays();
-    void loadWatches();
     const id = window.setInterval(() => void loadSessions(), 15000);
     return () => window.clearInterval(id);
-  }, [loadSessions, loadMap, loadRelays, loadWatches]);
+  }, [loadSessions, loadMap, loadRelays]);
 
   useEffect(() => {
     try { localStorage.setItem(CAM_KEY, JSON.stringify(cam)); } catch { /* private mode */ }
@@ -166,7 +125,7 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
         window.setTimeout(() => setPulses((p) => p.filter((x) => x.key !== key)), 1800);
       }
     });
-    const offMap = subscribeEvents("ctxmap.changed", () => { void loadMap(); void loadWatches(); });
+    const offMap = subscribeEvents("ctxmap.changed", () => { void loadMap(); });
     const offDelta = subscribeEvents("message.delta", (ev) => {
       const sid = (ev.payload as { sessionId?: string } | undefined)?.sessionId;
       // the dot only needs to know it is still typing (it fades after 2s):
@@ -177,7 +136,7 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
       });
     });
     return () => { offRelay(); offMap(); offDelta(); };
-  }, [loadMap, loadWatches]);
+  }, [loadMap]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -250,8 +209,6 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
     if (e.button !== 0 && e.button !== 1) return;
     setSelLink(null);
     setSelCard(null);
-    setSelWatch(null);
-    setSelHandoff(null);
     setGesture({ kind: "pan", sx: e.clientX, sy: e.clientY, cam });
   };
 
@@ -320,33 +277,6 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
       setPointer(null);
       const target = hitCard(toWorld(e.clientX, e.clientY), rects, g.from);
       if (!target) return;
-      // chat ↔ agent: the agent watches the chat, whichever way it was drawn
-      if (isAgent(g.from) || isAgent(target)) {
-        // agent → agent: the first's finished work goes on to the second
-        if (isAgent(g.from) && isAgent(target)) {
-          try {
-            const h = await rpc<Handoff>("staff.handoffSave", { fromId: profileOf(g.from), toId: profileOf(target) });
-            setHandoffs((hs) => (hs.some((x) => x.id === h.id) ? hs : [...hs, h]));
-            setSelHandoff(h.id);
-            setSelWatch(null);
-            setSelLink(null);
-          } catch (err) {
-            toast(err instanceof Error ? err.message : "handoff failed", "err");
-          }
-          return;
-        }
-        const agentId = profileOf(isAgent(g.from) ? g.from : target);
-        const sessionId = isAgent(g.from) ? target : g.from;
-        try {
-          const w = await rpc<Watch>("staff.watchSave", { sessionId, profileId: agentId });
-          setWatches((ws) => (ws.some((x) => x.id === w.id) ? ws : [...ws, w]));
-          setSelWatch(w.id);
-          setSelLink(null);
-        } catch (err) {
-          toast(err instanceof Error ? err.message : "watch failed", "err");
-        }
-        return;
-      }
       try {
         const l = await rpc<SessionLink>("ctxmap.link", { sessionA: g.from, sessionB: target });
         setLinks((ls) => (ls.some((x) => x.id === l.id) ? ls : [...ls, l]));
@@ -425,47 +355,7 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
     await rpc("ctxmap.unlink", { id }).catch(() => loadMap());
   };
 
-  const saveWatch = async (w: Watch) => {
-    setWatches((ws) => ws.map((x) => (x.id === w.id ? w : x)));
-    try {
-      await rpc("staff.watchSave", w);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "update failed", "err");
-      void loadWatches();
-    }
-  };
-  const saveHandoff = async (h: Handoff) => {
-    setHandoffs((hs) => hs.map((x) => (x.id === h.id ? h : x)));
-    try { await rpc("staff.handoffSave", h); } catch (e) { toast(e instanceof Error ? e.message : "update failed", "err"); void loadWatches(); }
-  };
-  const deleteHandoff = async (id: string) => {
-    setHandoffs((hs) => hs.filter((x) => x.id !== id));
-    setSelHandoff(null);
-    await rpc("staff.handoffDelete", { id }).catch(() => loadWatches());
-  };
-  const deleteWatch = async (id: string) => {
-    setWatches((ws) => ws.filter((x) => x.id !== id));
-    setSelWatch(null);
-    await rpc("staff.watchDelete", { id }).catch(() => loadWatches());
-  };
-
   const removeCard = async (id: string) => {
-    // a watch hidden off the map would keep working unseen: its cable goes
-    // with the card
-    if (isAgent(id)) {
-      const pid = profileOf(id);
-      const handed = handoffs.filter((h) => h.fromId === pid || h.toId === pid);
-      if (handed.length) {
-        setHandoffs((hs) => hs.filter((h) => !handed.includes(h)));
-        for (const h of handed) void rpc("staff.handoffDelete", { id: h.id }).catch(() => loadWatches());
-      }
-    }
-    const gone = watches.filter((w) => (isAgent(id) ? w.profileId === profileOf(id) : w.sessionId === id));
-    if (gone.length) {
-      setWatches((ws) => ws.filter((w) => !gone.includes(w)));
-      if (gone.some((w) => w.id === selWatch)) setSelWatch(null);
-      for (const w of gone) void rpc("staff.watchDelete", { id: w.id }).catch(() => loadWatches());
-    }
     setNodes((m) => { const n = new Map(m); n.delete(id); return n; });
     setLinks((ls) => ls.filter((l) => l.sessionA !== id && l.sessionB !== id));
     await rpc("ctxmap.remove", { sessionId: id }).catch(() => loadMap());
@@ -505,7 +395,7 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
   }, []);
   const placedKey = [...rects.keys()].sort().join(",");
   useEffect(() => {
-    for (const id of rects.keys()) if (!isAgent(id) && !ctxs.has(id)) void loadCtx(id, sessionById.get(id)?.title ?? "");
+    for (const id of rects.keys()) if (!ctxs.has(id)) void loadCtx(id, sessionById.get(id)?.title ?? "");
   }, [placedKey, loadCtx]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => subscribeEvents("message.done", (ev) => {
     const id = (ev.payload as { sessionId?: string } | undefined)?.sessionId;
@@ -542,17 +432,11 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
   };
   const visibleLinks = links.filter((l) => rects.has(l.sessionA) && rects.has(l.sessionB));
   const selected = links.find((l) => l.id === selLink) ?? null;
-  const visibleWatches = watches.filter((w) => rects.has(w.sessionId) && rects.has(AGENT + w.profileId));
-  const watchSel = watches.find((w) => w.id === selWatch) ?? null;
-  const visibleHandoffs = handoffs.filter((h) => rects.has(AGENT + h.fromId) && rects.has(AGENT + h.toId));
-  const handoffSel = handoffs.find((h) => h.id === selHandoff) ?? null;
   // Where every cable leaves and lands: level or upright between aligned
   // cards, and spread along a card's edge where several leave one spot.
   const ends = useMemo(() => {
     const raw: { key: string; a: string; b: string }[] = [
       ...visibleLinks.map((l) => ({ key: `l:${l.id}`, a: l.sessionA, b: l.sessionB })),
-      ...visibleWatches.map((w) => ({ key: `w:${w.id}`, a: w.sessionId, b: AGENT + w.profileId })),
-      ...visibleHandoffs.map((h) => ({ key: `h:${h.id}`, a: AGENT + h.fromId, b: AGENT + h.toId })),
     ];
     const pts: [string, Pt][] = [];
     for (const r of raw) {
@@ -563,8 +447,7 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
     const m = new Map<string, { from: Pt; to: Pt }>();
     raw.forEach((r, i) => m.set(r.key, { from: moved[2 * i], to: moved[2 * i + 1] }));
     return m;
-  }, [visibleLinks, visibleWatches, visibleHandoffs, rects]);
-  const stateOf = (pid: string) => members?.find((m) => m.profile.id === pid);
+  }, [visibleLinks, rects]);
   const lastRelay = useMemo(() => {
     const m = new Map<string, Relay>();
     for (const r of relays) if (!m.has(r.to)) m.set(r.to, r);
@@ -573,7 +456,6 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
 
   const q = filter.trim().toLowerCase();
   const listed = sessions.filter((s) => !q || s.title.toLowerCase().includes(q) || wsName(s).toLowerCase().includes(q));
-  const agentsListed = profiles.filter((p) => !q || p.name.toLowerCase().includes(q) || (p.title ?? "").toLowerCase().includes(q));
 
   const gridStyle: React.CSSProperties = {
     backgroundSize: `${GRID * cam.k}px ${GRID * cam.k}px, ${GRID * cam.k}px ${GRID * cam.k}px, ${GRID * 5 * cam.k}px ${GRID * 5 * cam.k}px, ${GRID * 5 * cam.k}px ${GRID * 5 * cam.k}px`,
@@ -640,45 +522,6 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
                 </g>
               );
             })}
-            {visibleWatches.map((w) => {
-              // a watch runs from the chat to the agent watching it
-              const en = ends.get(`w:${w.id}`)!;
-              const c = cable(en.from, en.to);
-              const mid = at(c, 0.5);
-              const on = w.id === selWatch;
-              const tint = w.color && w.enabled ? { stroke: `var(--cc-${w.color})` } : undefined;
-              const label = w.instruction ? (w.instruction.length > 36 ? `${w.instruction.slice(0, 35)}…` : w.instruction) : t("ctxWatching", lang);
-              return (
-                <g key={w.id} className={`cmap-watch${w.enabled ? "" : " off"}${on ? " on" : ""}`} data-watch={w.id}>
-                  <path d={c.d} className="cmap-watch-line" style={tint} />
-                  <path d={c.d} className="cmap-wire-hit" onPointerDown={(e) => { e.stopPropagation(); setSelWatch(w.id); setSelLink(null); setSelCard(null); }} />
-                  <g transform={`translate(${mid.x} ${mid.y}) rotate(${mid.angle})`} className="cmap-watch-mark" style={tint}>
-                    <circle r={9} />
-                    <path d="M -3 -4 L 2 0 L -3 4" />
-                  </g>
-                  <text x={mid.x} y={mid.y - 14} className="cmap-wire-label">{label}</text>
-                </g>
-              );
-            })}
-            {visibleHandoffs.map((h) => {
-              // a handoff runs from the agent who finishes to the one who goes on
-              const en = ends.get(`h:${h.id}`)!;
-              const c = cable(en.from, en.to);
-              const mid = at(c, 0.5);
-              const tint = h.color && h.enabled ? { stroke: `var(--cc-${h.color})` } : undefined;
-              const label = h.instruction ? (h.instruction.length > 36 ? `${h.instruction.slice(0, 35)}…` : h.instruction) : t("ctxHandsOn", lang);
-              return (
-                <g key={h.id} className={`cmap-watch cmap-handoff${h.enabled ? "" : " off"}${h.id === selHandoff ? " on" : ""}`} data-handoff={h.id}>
-                  <path d={c.d} className="cmap-watch-line" style={tint} />
-                  <path d={c.d} className="cmap-wire-hit" onPointerDown={(e) => { e.stopPropagation(); setSelHandoff(h.id); setSelWatch(null); setSelLink(null); setSelCard(null); }} />
-                  <g transform={`translate(${mid.x} ${mid.y}) rotate(${mid.angle})`} className="cmap-watch-mark" style={tint}>
-                    <circle r={9} />
-                    <path d="M -4 -4 L 1 0 L -4 4 M 0 -4 L 5 0 L 0 4" />
-                  </g>
-                  <text x={mid.x} y={mid.y - 14} className="cmap-wire-label">{label}</text>
-                </g>
-              );
-            })}
             {shared.map((x) => {
               const a = rects.get(x.a)!;
               const b = rects.get(x.b)!;
@@ -704,45 +547,6 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
           </svg>
 
           {[...rects.entries()].map(([id, rc]) => {
-            if (isAgent(id)) {
-              const p = profileById.get(profileOf(id))!;
-              const m = stateOf(p.id);
-              const state = m?.state ?? "idle";
-              const watching = watches.filter((w) => w.profileId === p.id).length;
-              return (
-                <div
-                  key={id}
-                  data-agent={p.id}
-                  className={`cmap-card cmap-agent ${state}${selCard === id ? " sel" : ""}${edgeOver === id ? " edge" : ""}${dropOn === id ? " drop" : ""}`}
-                  style={{ left: rc.x, top: rc.y, width: rc.w, height: rc.h }}
-                  onPointerDown={(e) => onCardDown(e, id)}
-                  onPointerMove={(e) => {
-                    if (gesture) return;
-                    const near = e.altKey || onEdge(id, toWorld(e.clientX, e.clientY));
-                    if (near !== (edgeOver === id)) setEdgeOver(near ? id : null);
-                  }}
-                  onPointerLeave={() => { if (edgeOver === id) setEdgeOver(null); }}
-                >
-                  <div className="cmap-card-head">
-                    <AgentMark mark={p.mark} color={p.color} seed={p.id} character={p.characterId} size={20} />
-                    <span className="cmap-card-title">{p.name}</span>
-                    <span className={`staff-dot ${state}`} title={t(`staffState_${state}`, lang)} />
-                    <button
-                      type="button"
-                      className="cmap-card-x"
-                      title={t("ctxRemoveCard", lang)}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => void removeCard(id)}
-                    >×</button>
-                  </div>
-                  <div className="cmap-card-sub">{p.title || t("staffNoTitle", lang)}</div>
-                  <div className="cmap-card-foot">
-                    {state === "working" && m?.now ? <span className="cmap-agent-now">{m.now}</span>
-                      : <span className="map-muted">{watching ? t("ctxWatchingN", lang).replace("{n}", String(watching)) : t("ctxAgentHint", lang)}</span>}
-                  </div>
-                </div>
-              );
-            }
             const s = sessionById.get(id)!;
             const busy = Boolean(typing[id]);
             const lr = lastRelay.get(id);
@@ -802,31 +606,7 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
           <span className="cmap-zoom-k">{Math.round(cam.k * 100)}%</span>
         </div>
 
-        {handoffSel && (
-          <HandoffPanel
-            key={handoffSel.id}
-            handoff={handoffSel}
-            from={profileById.get(handoffSel.fromId)?.name ?? ""}
-            to={profileById.get(handoffSel.toId)?.name ?? ""}
-            lang={lang}
-            onChange={(h) => void saveHandoff(h)}
-            onDelete={() => void deleteHandoff(handoffSel.id)}
-            onClose={() => setSelHandoff(null)}
-          />
-        )}
-        {watchSel && !handoffSel && (
-          <WatchPanel
-            key={watchSel.id}
-            watch={watchSel}
-            chat={titleOf(watchSel.sessionId)}
-            agent={profileById.get(watchSel.profileId)?.name ?? ""}
-            lang={lang}
-            onChange={(w) => void saveWatch(w)}
-            onDelete={() => void deleteWatch(watchSel.id)}
-            onClose={() => setSelWatch(null)}
-          />
-        )}
-        {selected && !watchSel && !handoffSel && (
+        {selected && (
           <LinkPanel
             link={selected}
             titleOf={titleOf}
@@ -879,36 +659,6 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
             );
           })}
         </div>
-        {profiles.length > 0 && (
-          <>
-            <div className="section-label">{t("ctxAgents", lang)}</div>
-            <div className="cmap-list cmap-agents">
-              {agentsListed.map((p) => {
-                const key = AGENT + p.id;
-                const on = rects.has(key);
-                return (
-                  <div
-                    key={p.id}
-                    className={`cmap-item cmap-agent-item${on ? " placed" : ""}`}
-                    draggable
-                    onDragStart={(e) => { e.dataTransfer.setData(DRAG_MIME, key); e.dataTransfer.effectAllowed = "move"; }}
-                    onClick={() => (on ? focusCard(key) : addToView(key))}
-                    title={on ? undefined : t("ctxClickAdd", lang)}
-                  >
-                    <AgentMark mark={p.mark} color={p.color} seed={p.id} character={p.characterId} size={18} />
-                    <div className="cmap-item-text">
-                      <div className="cmap-item-title">{p.name}</div>
-                      <div className="cmap-item-sub">
-                        <span>{p.title || t("staffNoTitle", lang)}</span>
-                        {on && <span className="cmap-badge">{t("ctxOnMap", lang)}</span>}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
         <div className="section-label">{t("ctxFlow", lang)}</div>
         <div className="cmap-flow">
           {relays.length === 0 && <div className="map-muted">{t("ctxNoFlow", lang)}</div>}
@@ -950,98 +700,6 @@ function Swatches({ value, onPick, lang }: { value?: string; onPick: (c: string)
         <button key={c} type="button" role="radio" aria-checked={value === c} aria-label={t(`color_${c}`, lang)} title={t(`color_${c}`, lang)}
           className={`cmap-swatch${value === c ? " on" : ""}`} style={{ background: `var(--cc-${c})` }} onClick={() => onPick(c)} />
       ))}
-    </div>
-  );
-}
-
-// HandoffPanel edits a handoff: what the second agent does with the first's
-// finished work, how many a day, on or off, its colour.
-function HandoffPanel({ handoff, from, to, lang, onChange, onDelete, onClose }: {
-  handoff: Handoff;
-  from: string;
-  to: string;
-  lang: Lang;
-  onChange: (h: Handoff) => void;
-  onDelete: () => void;
-  onClose: () => void;
-}) {
-  const L = (k: string) => t(k, lang);
-  const [instruction, setInstruction] = useState(handoff.instruction);
-  const [limit, setLimit] = useState(String(handoff.dailyLimit || 10));
-  const [arm, setArm] = useState(false);
-  const commit = (patch: Partial<Handoff>) => onChange({ ...handoff, ...patch });
-  return (
-    <div className="cmap-panel cmap-watch-panel" role="dialog" aria-label={L("ctxHandoff")} onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
-      <div className="cmap-panel-head">
-        <strong>{from} → {to}</strong>
-        <button type="button" className="icon-btn" onClick={onClose}>×</button>
-      </div>
-      <p className="map-muted cmap-watch-lead">{L("ctxHandoffLead").replace("{from}", from).replace("{to}", to)}</p>
-      <label className="map-label" htmlFor="h-ins">{L("ctxHandoffInstruction")}</label>
-      <textarea id="h-ins" rows={3} value={instruction} placeholder={L("ctxHandoffInstructionPh")}
-        onChange={(e) => setInstruction(e.target.value)} onBlur={() => instruction !== handoff.instruction && commit({ instruction })} />
-      <label className="map-label">{L("ctxColor")}</label>
-      <Swatches value={handoff.color} lang={lang} onPick={(color) => commit({ color })} />
-      <label className="map-label" htmlFor="h-limit">{L("ctxWatchLimit")}</label>
-      <input id="h-limit" type="number" min={1} max={200} value={limit}
-        onChange={(e) => setLimit(e.target.value)}
-        onBlur={() => { const n = Math.max(1, Math.min(200, Number(limit) || 10)); setLimit(String(n)); if (n !== handoff.dailyLimit) commit({ dailyLimit: n }); }} />
-      <div className="cmap-seg">
-        <button type="button" className={handoff.enabled ? "on" : ""} aria-pressed={handoff.enabled} onClick={() => commit({ enabled: true })}>{L("ctxWatchOn")}</button>
-        <button type="button" className={!handoff.enabled ? "on" : ""} aria-pressed={!handoff.enabled} onClick={() => commit({ enabled: false })}>{L("ctxWatchOff")}</button>
-      </div>
-      <button type="button" className={`ghost danger${arm ? " armed" : ""}`} onBlur={() => setArm(false)}
-        onClick={() => { if (arm) onDelete(); else setArm(true); }}>
-        {arm ? L("ctxWatchDeleteSure") : L("ctxHandoffDelete")}
-      </button>
-    </div>
-  );
-}
-
-// WatchPanel edits a watch: what the agent is to do when the chat changes
-// files, which files count, how many times a day at most, and on or off.
-function WatchPanel({ watch, chat, agent, lang, onChange, onDelete, onClose }: {
-  watch: Watch;
-  chat: string;
-  agent: string;
-  lang: Lang;
-  onChange: (w: Watch) => void;
-  onDelete: () => void;
-  onClose: () => void;
-}) {
-  const L = (k: string) => t(k, lang);
-  const [instruction, setInstruction] = useState(watch.instruction);
-  const [filter, setFilter] = useState(watch.filter ?? "");
-  const [limit, setLimit] = useState(String(watch.dailyLimit || 10));
-  const [arm, setArm] = useState(false);
-  const commit = (patch: Partial<Watch>) => onChange({ ...watch, ...patch });
-  return (
-    <div className="cmap-panel cmap-watch-panel" role="dialog" aria-label={L("ctxWatch")} onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
-      <div className="cmap-panel-head">
-        <strong>{agent} {L("ctxWatches")} · {chat}</strong>
-        <button type="button" className="icon-btn" onClick={onClose}>×</button>
-      </div>
-      <p className="map-muted cmap-watch-lead">{L("ctxWatchLead").replace("{agent}", agent).replace("{chat}", chat)}</p>
-      <label className="map-label" htmlFor="w-ins">{L("ctxWatchInstruction")}</label>
-      <textarea id="w-ins" rows={3} value={instruction} placeholder={L("ctxWatchInstructionPh")}
-        onChange={(e) => setInstruction(e.target.value)} onBlur={() => instruction !== watch.instruction && commit({ instruction })} />
-      <label className="map-label">{L("ctxColor")}</label>
-      <Swatches value={watch.color} lang={lang} onPick={(color) => commit({ color })} />
-      <label className="map-label" htmlFor="w-filter">{L("ctxWatchFilter")}</label>
-      <input id="w-filter" value={filter} placeholder={L("ctxWatchFilterPh")}
-        onChange={(e) => setFilter(e.target.value)} onBlur={() => filter !== (watch.filter ?? "") && commit({ filter })} />
-      <label className="map-label" htmlFor="w-limit">{L("ctxWatchLimit")}</label>
-      <input id="w-limit" type="number" min={1} max={200} value={limit}
-        onChange={(e) => setLimit(e.target.value)}
-        onBlur={() => { const n = Math.max(1, Math.min(200, Number(limit) || 10)); setLimit(String(n)); if (n !== watch.dailyLimit) commit({ dailyLimit: n }); }} />
-      <div className="cmap-seg">
-        <button type="button" className={watch.enabled ? "on" : ""} aria-pressed={watch.enabled} onClick={() => commit({ enabled: true })}>{L("ctxWatchOn")}</button>
-        <button type="button" className={!watch.enabled ? "on" : ""} aria-pressed={!watch.enabled} onClick={() => commit({ enabled: false })}>{L("ctxWatchOff")}</button>
-      </div>
-      <button type="button" className={`ghost danger${arm ? " armed" : ""}`} onBlur={() => setArm(false)}
-        onClick={() => { if (arm) onDelete(); else setArm(true); }}>
-        {arm ? L("ctxWatchDeleteSure") : L("ctxWatchDelete")}
-      </button>
     </div>
   );
 }

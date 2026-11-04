@@ -12,7 +12,7 @@ import { Automation } from "./Automation";
 import { Memory } from "./Memory";
 import { Icon } from "./Icons";
 import { UsagePanel } from "./UsagePanel";
-import { PALETTES, THEMES, applyTheme, applyLang, type Palette, type ThemeId } from "~/lib/themes";
+import { DEFAULT_THEME, PALETTES, THEMES, applyTheme, applyLang, type Palette, type ThemeId } from "~/lib/themes";
 import { LANGS, t, getLang, type Lang } from "~/lib/i18n";
 
 import { OfficePanel, type OfficeIntent } from "./OfficePanel";
@@ -69,16 +69,17 @@ function hostLabel(h: SSHTarget): string {
 export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSection = "appearance", officeIntent, workspace, sessionId }: Props) {
   const sheet = useDialog<HTMLDivElement>();
   const { skills, reload: reloadSkills } = useSkills();
-  const { providers, reload: reloadProviders } = useProviders();
+  const { providers: allProviders, reload: reloadProviders } = useProviders();
+  // the offline stand-in is not something a user connected: it is not listed
+  const providers = allProviders.filter((p) => p.kind !== "fake");
   // "add a provider" shows the systems a user can connect their account to
   const [adding, setAdding] = useState(false);
   const { goals, reload: reloadGoals } = useGoals();
   const { workspaces, reload: reloadWs } = useWorkspaces();
   const [section, setSection] = useState<Section>(initialSection);
   useEffect(() => { setSection(initialSection); }, [initialSection]);
-  const [theme, setTheme] = useState<ThemeId>((localStorage.getItem("aether.theme") as ThemeId) || "graphite");
+  const [theme, setTheme] = useState<ThemeId>((localStorage.getItem("aether.theme") as ThemeId) || DEFAULT_THEME);
   const [lang, setLang] = useState<Lang>(getLang());
-  const [newProvider, setNewProvider] = useState({ name: "", baseUrl: "", secretId: "", secret: "", models: "" });
   const [provBusy, setProvBusy] = useState<string | null>(null); // "new" or a provider id
   const [provErr, setProvErr] = useState("");
   const [notifyOn, setNotifyOn] = useState(notifyEnabled);
@@ -109,6 +110,7 @@ export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSecti
     }
   }, []);
   const [sshBusy, setSshBusy] = useState(false);
+  const [sshAdding, setSshAdding] = useState(false);
   const [sshErr, setSshErr] = useState("");
   useEffect(() => { if (section === "servers") setSshHosts(loadSSHHosts()); }, [section]);
 
@@ -133,6 +135,9 @@ export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSecti
       setFinding(false);
     }
   }, [sshHosts]);
+  // adding looks on this computer straight away; typing one in is below it
+  const openServerAdd = () => { setSshAdding(true); void findServers(); };
+  const closeServerAdd = () => { setSshAdding(false); setFound(null); setPicked(new Set()); };
   const addFound = () => {
     let list = sshHosts;
     for (const d of found ?? []) {
@@ -140,8 +145,7 @@ export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSecti
     }
     setSshHosts(list);
     toast(`${picked.size} ${t("sshAdded", lang)}`, "ok");
-    setFound(null);
-    setPicked(new Set());
+    closeServerAdd();
   };
   const connectHost = useCallback(async (target: SSHTarget, resetForm = false) => {
     setSshBusy(true);
@@ -178,39 +182,7 @@ export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSecti
     applyLang(id);
   };
 
-  // Saving a provider asks it for its models ({base}/models) unless they
-  // are typed in; the key is stored first so that request can use it.
   type Saved = Provider & { modelsFetched?: number; modelsError?: string };
-  const saveProvider = useCallback(async () => {
-    const name = newProvider.name.trim();
-    if (!name || provBusy) return;
-    setProvBusy("new");
-    setProvErr("");
-    try {
-      const secretId = newProvider.secretId.trim() || `${name}-key`;
-      if (newProvider.secret) await rpc("secret.put", { id: secretId, value: newProvider.secret });
-      const typed = newProvider.models.split(/[,\n]/).map((m) => m.trim()).filter(Boolean);
-      const saved = await rpc<Saved>("provider.upsert", {
-        name,
-        kind: "openai-compat",
-        baseUrl: newProvider.baseUrl.trim(),
-        secretId,
-        models: typed,
-      });
-      if (saved.modelsError) {
-        setProvErr(`${t("provModelsFailed", lang)}: ${saved.modelsError}`);
-      } else {
-        toast(`${name}: ${saved.models?.length ?? 0} ${t("provModelsAdded", lang)}`, "ok");
-        setNewProvider({ name: "", baseUrl: "", secretId: "", secret: "", models: "" });
-      }
-      await reloadProviders();
-    } catch (e) {
-      setProvErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setProvBusy(null);
-    }
-  }, [newProvider, provBusy, reloadProviders, lang]);
-
   const refreshModels = useCallback(async (p: Provider) => {
     setProvBusy(p.id);
     setProvErr("");
@@ -224,6 +196,28 @@ export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSecti
       setProvBusy(null);
     }
   }, [reloadProviders, lang]);
+
+  // an account system's id, from its provider address (agent://<id>?…)
+  const agentSystem = (p: Provider) => (p.kind === "agent-cli" ? /^agent:\/\/([^?]+)/.exec(p.baseUrl)?.[1] ?? "" : "");
+  // Claude Code and Codex can sign out; another account signs in after
+  const canSwitch = (p: Provider) => ["claude-code", "codex"].includes(agentSystem(p));
+  const switchAccount = useCallback(async (p: Provider) => {
+    try {
+      await rpc("connect.terminal", { id: agentSystem(p), step: "switch" });
+      toast(t("conSwitchOpened", lang), "ok");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "err");
+    }
+  }, [lang]);
+  const deleteProvider = useCallback(async (p: Provider) => {
+    try {
+      await rpc("provider.delete", { id: p.id });
+      if (p.kind === "agent-cli" && canSwitch(p)) toast(`${p.name} ${t("conStillSignedIn", lang)}`, "ok");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "err");
+    }
+    await reloadProviders();
+  }, [reloadProviders, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openWorkspace = useCallback(async () => {
     const path = (await pickFolder()).trim();
@@ -338,6 +332,7 @@ export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSecti
                   {!adding && <button type="button" className="primary" onClick={() => setAdding(true)}>+ {t("conAdd", lang)}</button>}
                 </div>
                 <p className="split-lead">{t("providersLead", lang)}</p>
+                {provErr && <div className="prov-err">{provErr}</div>}
                 {adding && (
                   <ConnectPicker lang={lang} providers={providers} onClose={() => setAdding(false)}
                     onDone={async () => { await reloadProviders(); setAdding(false); }} />
@@ -346,6 +341,7 @@ export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSecti
                   <div className="empty">
                     <strong>{t("providersEmpty", lang)}</strong>
                     <p>{t("providersEmptyHint", lang)}</p>
+                    <button type="button" className="primary" style={{ marginTop: 10 }} onClick={() => setAdding(true)}>+ {t("conAddFirst", lang)}</button>
                   </div>
                 ) : (
                   <div className="row-list" style={{ marginBottom: 22 }}>
@@ -368,38 +364,17 @@ export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSecti
                               </span>
                             )}
                           </div>
-                          {p.kind !== "fake" && (
-                            <button className="ghost prov-refresh" disabled={provBusy !== null} title={t("provRefreshHint", lang)} onClick={() => void refreshModels(p)}>
-                              {provBusy === p.id ? t("provFetching", lang) : `↻ ${t("provRefresh", lang)}`}
-                            </button>
+                          {canSwitch(p) && (
+                            <button className="ghost prov-refresh" onClick={() => void switchAccount(p)}>{t("conSwitch", lang)} ↗</button>
                           )}
-                          <button className="danger-btn" style={{ fontSize: 11 }} onClick={() => void rpc("provider.delete", { id: p.id }).then(() => reloadProviders())}>{t("delete", lang)}</button>
+                          <button className="ghost prov-refresh" disabled={provBusy !== null} title={t("provRefreshHint", lang)} onClick={() => void refreshModels(p)}>
+                            {provBusy === p.id ? t("provFetching", lang) : `↻ ${t("provRefresh", lang)}`}
+                          </button>
+                          <button className="danger-btn" style={{ fontSize: 11 }} onClick={() => void deleteProvider(p)}>{t("delete", lang)}</button>
                         </div>
                       );
                     })}
                   </div>
-                )}
-                {!adding && (
-                <details className="con-custom">
-                <summary>{t("conCustom", lang)}</summary>
-                <div className="form-stack">
-                  <label>{t("fieldName", lang)}</label>
-                  <input placeholder="my-provider" value={newProvider.name} onChange={(e) => setNewProvider((p) => ({ ...p, name: e.target.value }))} />
-                  <label>{t("providerBaseUrl", lang)}</label>
-                  <input placeholder="https://api.example.com/v1" value={newProvider.baseUrl} onChange={(e) => setNewProvider((p) => ({ ...p, baseUrl: e.target.value }))} />
-                  <label>{t("providerSecretId", lang)}</label>
-                  <input placeholder="provider-key" value={newProvider.secretId} onChange={(e) => setNewProvider((p) => ({ ...p, secretId: e.target.value }))} />
-                  <label>{t("providerApiKey", lang)}</label>
-                  <input type="password" placeholder="sk-…" value={newProvider.secret} onChange={(e) => setNewProvider((p) => ({ ...p, secret: e.target.value }))} />
-                  <label>{t("provModelsLabel", lang)}</label>
-                  <input placeholder={t("provModelsPlaceholder", lang)} value={newProvider.models} onChange={(e) => setNewProvider((p) => ({ ...p, models: e.target.value }))} />
-                  <span className="map-muted" style={{ fontSize: 11.5 }}>{t("provModelsHint", lang)}</span>
-                  {provErr && <div className="prov-err">{provErr}</div>}
-                  <button className="primary" disabled={!newProvider.name.trim() || provBusy !== null} onClick={() => void saveProvider()} style={{ alignSelf: "flex-start", marginTop: 6 }}>
-                    {provBusy === "new" ? t("provFetching", lang) : t("save", lang)}
-                  </button>
-                </div>
-                </details>
                 )}
               </>
             )}
@@ -509,15 +484,19 @@ export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSecti
 
             {section === "servers" && (
               <>
-                <h2>{t("servers", lang)}</h2>
+                <div className="con-title-row">
+                  <h2>{t("servers", lang)}</h2>
+                  {!sshAdding && <button type="button" className="primary" onClick={openServerAdd}>+ {t("sshAdd", lang)}</button>}
+                </div>
                 <p className="split-lead">{t("sshLead", lang)}</p>
-                {sshHosts.length === 0 ? (
+                {sshErr && <div className="danger">{sshErr}</div>}
+                {!sshAdding && (sshHosts.length === 0 ? (
                   <div className="empty">
                     <strong>{t("sshEmpty", lang)}</strong>
                     <p>{t("sshEmptyHint", lang)}</p>
                   </div>
                 ) : (
-                  <div className="row-list" style={{ marginBottom: 22 }}>
+                  <div className="row-list">
                     {sshHosts.map((h) => (
                       <div key={hostLabel(h)} className="row">
                         <div className="avatar"><Icon name="terminal" size={14} /></div>
@@ -537,86 +516,90 @@ export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSecti
                       </div>
                     ))}
                   </div>
-                )}
-                <div className="ssh-find">
-                  <button type="button" className="ghost" disabled={finding} onClick={() => void findServers()}>
-                    {finding ? "…" : `⌕ ${t("sshFind", lang)}`}
-                  </button>
-                  <span className="map-muted">{t("sshFindHint", lang)}</span>
-                </div>
-                {found && (
-                  <div className="ssh-found" role="group" aria-label={t("sshFound", lang)}>
-                    {found.length === 0 ? (
-                      <p className="map-muted">{t("sshNoneFound", lang)}</p>
-                    ) : (
-                      <>
-                        {found.map((d) => {
-                          const saved = isSaved(d);
-                          const k = foundKey(d);
-                          return (
-                            <label key={k} className={`ssh-found-row${saved ? " saved" : ""}`}>
-                              <input
-                                type="checkbox"
-                                disabled={saved}
-                                checked={saved || picked.has(k)}
-                                onChange={(e) => setPicked((cur) => { const n = new Set(cur); if (e.target.checked) n.add(k); else n.delete(k); return n; })}
-                              />
-                              <span className="ssh-found-name">
-                                <strong>{d.alias ?? d.hostName}</strong>
-                                <span>
-                                  {d.alias && d.hostName !== d.alias ? `${d.user ? `${d.user}@` : ""}${d.hostName}` : d.user ? `${d.user}@${d.hostName}` : ""}
-                                  {d.port ? `:${d.port}` : ""}
+                ))}
+                {sshAdding && (
+                  <div className="ssh-add">
+                    <button type="button" className="ghost con-back" onClick={closeServerAdd}>← {t("cancel", lang)}</button>
+                    <section>
+                      <div className="section-label">{t("sshFound", lang)}</div>
+                      {finding && <p className="map-muted">{t("conChecking", lang)}</p>}
+                      {found && found.length === 0 && <p className="map-muted">{t("sshNoneFound", lang)}</p>}
+                      {found && found.length > 0 && (
+                        <div className="ssh-found" role="group" aria-label={t("sshFound", lang)}>
+                          {found.map((d) => {
+                            const saved = isSaved(d);
+                            const k = foundKey(d);
+                            return (
+                              <label key={k} className={`ssh-found-row${saved ? " saved" : ""}`}>
+                                <input
+                                  type="checkbox"
+                                  disabled={saved}
+                                  checked={saved || picked.has(k)}
+                                  onChange={(e) => setPicked((cur) => { const n = new Set(cur); if (e.target.checked) n.add(k); else n.delete(k); return n; })}
+                                />
+                                <span className="ssh-found-name">
+                                  <strong>{d.alias ?? d.hostName}</strong>
+                                  <span>
+                                    {d.alias && d.hostName !== d.alias ? `${d.user ? `${d.user}@` : ""}${d.hostName}` : d.user ? `${d.user}@${d.hostName}` : ""}
+                                    {d.port ? `:${d.port}` : ""}
+                                  </span>
                                 </span>
-                              </span>
-                              <span className="ssh-found-src">{saved ? t("sshSaved", lang) : d.source === "config" ? "~/.ssh/config" : "known_hosts"}</span>
-                            </label>
-                          );
-                        })}
-                        <div className="ssh-found-actions">
-                          <button type="button" className="ghost" onClick={() => setFound(null)}>{t("cancel", lang)}</button>
-                          <button type="button" className="primary" disabled={picked.size === 0} onClick={addFound}>
-                            {t("sshAddPicked", lang)} ({picked.size})
-                          </button>
+                                <span className="ssh-found-src">{saved ? t("sshSaved", lang) : d.source === "config" ? "~/.ssh/config" : "known_hosts"}</span>
+                              </label>
+                            );
+                          })}
+                          <div className="ssh-found-actions">
+                            <button type="button" className="primary" disabled={picked.size === 0} onClick={addFound}>
+                              {t("sshAddPicked", lang)} ({picked.size})
+                            </button>
+                          </div>
                         </div>
-                      </>
-                    )}
+                      )}
+                    </section>
+                    <section>
+                      <div className="section-label">{t("sshManual", lang)}</div>
+                      <div className="ssh-form">
+                        <label className="wide">{t("sshHost", lang)}
+                          <input value={sshForm.host} placeholder="example.com" onChange={(e) => setSshForm((f) => ({ ...f, host: e.target.value }))} />
+                        </label>
+                        <label>{t("sshPort", lang)}
+                          <input value={sshForm.port} placeholder="22" onChange={(e) => setSshForm((f) => ({ ...f, port: e.target.value }))} />
+                        </label>
+                        <label>{t("sshUser", lang)}
+                          <input value={sshForm.user} placeholder="root" onChange={(e) => setSshForm((f) => ({ ...f, user: e.target.value }))} />
+                        </label>
+                        <label>{t("sshAuth", lang)}
+                          <select value={sshForm.authMethod} onChange={(e) => setSshForm((f) => ({ ...f, authMethod: e.target.value }))}>
+                            <option value="agent">ssh-agent</option>
+                            <option value="key">private key</option>
+                            <option value="password">password (prompt in pty)</option>
+                          </select>
+                        </label>
+                        {sshForm.authMethod === "key" && (
+                          <label className="wide">{t("sshKeyPath", lang)}
+                            <input value={sshForm.keyPath} placeholder="~/.ssh/id_ed25519" onChange={(e) => setSshForm((f) => ({ ...f, keyPath: e.target.value }))} />
+                          </label>
+                        )}
+                      </div>
+                      <div className="con-actions">
+                        <button
+                          type="button"
+                          className="primary"
+                          disabled={sshBusy || !sshForm.host.trim()}
+                          onClick={() => void connectHost({
+                            host: sshForm.host.trim(),
+                            port: Number(sshForm.port) || 22,
+                            user: sshForm.user.trim() || undefined,
+                            authMethod: sshForm.authMethod,
+                            keyPath: sshForm.keyPath.trim() || undefined,
+                          }, true)}
+                        >
+                          {sshBusy ? "…" : t("sshSaveConnect", lang)}
+                        </button>
+                      </div>
+                    </section>
                   </div>
                 )}
-                <div className="form-stack">
-                  <label>{t("sshHost", lang)}</label>
-                  <input value={sshForm.host} placeholder="example.com" onChange={(e) => setSshForm((f) => ({ ...f, host: e.target.value }))} />
-                  <label>{t("sshPort", lang)}</label>
-                  <input value={sshForm.port} placeholder="22" onChange={(e) => setSshForm((f) => ({ ...f, port: e.target.value }))} />
-                  <label>{t("sshUser", lang)}</label>
-                  <input value={sshForm.user} placeholder="root" onChange={(e) => setSshForm((f) => ({ ...f, user: e.target.value }))} />
-                  <label>{t("sshAuth", lang)}</label>
-                  <select value={sshForm.authMethod} onChange={(e) => setSshForm((f) => ({ ...f, authMethod: e.target.value }))}>
-                    <option value="agent">ssh-agent</option>
-                    <option value="key">private key</option>
-                    <option value="password">password (prompt in pty)</option>
-                  </select>
-                  {sshForm.authMethod === "key" && (
-                    <>
-                      <label>{t("sshKeyPath", lang)}</label>
-                      <input value={sshForm.keyPath} placeholder="~/.ssh/id_ed25519" onChange={(e) => setSshForm((f) => ({ ...f, keyPath: e.target.value }))} />
-                    </>
-                  )}
-                  {sshErr && <div className="danger">{sshErr}</div>}
-                  <button
-                    className="primary"
-                    style={{ alignSelf: "flex-start", marginTop: 6 }}
-                    disabled={sshBusy || !sshForm.host.trim()}
-                    onClick={() => void connectHost({
-                      host: sshForm.host.trim(),
-                      port: Number(sshForm.port) || 22,
-                      user: sshForm.user.trim() || undefined,
-                      authMethod: sshForm.authMethod,
-                      keyPath: sshForm.keyPath.trim() || undefined,
-                    }, true)}
-                  >
-                    {sshBusy ? "…" : "Kaydet ve bağlan"}
-                  </button>
-                </div>
               </>
             )}
 

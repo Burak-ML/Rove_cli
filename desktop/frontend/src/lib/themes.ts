@@ -12,6 +12,10 @@ export type ThemeId =
   | "latte"
   | "github-light";
 
+// The theme a new install opens with, and the one anything unknown falls
+// back to.
+export const DEFAULT_THEME: ThemeId = "graphite";
+
 // Themes that were dropped, and the one each person who had picked it gets
 // instead: the nearest in tone.
 const RETIRED: Record<string, ThemeId> = {
@@ -51,14 +55,14 @@ export interface Palette {
 
 export const PALETTES: Record<ThemeId, Palette> = {
   // Rove: the brand is black and white, so the accent is too — white on
-  // graphite. Four steps of grey told apart at a glance, none of them
-  // black: frame and side list share the darkest, the work area sits one
-  // step up, cards and menus one more, code and terminal wells one down.
+  // graphite. Pure greys with no blue in them, four steps told apart at a
+  // glance, none of them black: frame and side list share the darkest, the
+  // work area sits one step up, cards and menus one more, wells one down.
   graphite: {
-    light: false, bg: "#151518", panel: "#1b1b1f", raised: "#222227", hover: "#2a2a30", sunken: "#121215", border: "#2e2e35",
-    text: "#e4e4e9", muted: "#a2a2ae", faint: "#7a7a86", accent: "#ececf0", accent2: "#b9b9c3", onAccent: "#131316",
+    light: false, bg: "#141414", panel: "#1a1a1a", raised: "#232323", hover: "#2b2b2b", sunken: "#101010", border: "#2e2e2e",
+    text: "#ececec", muted: "#a6a6a6", faint: "#7c7c7c", accent: "#f0f0f0", accent2: "#bdbdbd", onAccent: "#141414",
     ok: "#5fd394", warn: "#e9a862", bad: "#f17d7d",
-    side: { bg: "#151518", hover: "#212126", border: "#2a2a30", text: "#e4e4e9", muted: "#a2a2ae", faint: "#7a7a86", accent: "#ececf0" },
+    side: { bg: "#141414", hover: "#222222", border: "#262626", text: "#ececec", muted: "#a6a6a6", faint: "#7c7c7c", accent: "#f0f0f0" },
     extra: { "--mono": '"JetBrains Mono", "SF Mono", "IBM Plex Mono", ui-monospace, monospace', "--r": "4px" },
   },
   // The named themes keep their own colors, laid out the way Rove is: the
@@ -141,6 +145,7 @@ export const PALETTES: Record<ThemeId, Palette> = {
 };
 
 export const THEMES: { id: ThemeId; label: string }[] = [
+  { id: "github",       label: "GitHub Blue" },
   { id: "graphite",     label: "Rove" },
   { id: "daylight",     label: "Rove Light" },
   { id: "nord",         label: "Nord" },
@@ -149,7 +154,6 @@ export const THEMES: { id: ThemeId; label: string }[] = [
   { id: "gruvbox",      label: "Gruvbox" },
   { id: "rose",         label: "Rosé Pine" },
   { id: "onedark",      label: "One Dark" },
-  { id: "github",       label: "GitHub Dark" },
   { id: "paper",        label: "Paper" },
   { id: "latte",        label: "Latte" },
   { id: "github-light", label: "GitHub Light" },
@@ -185,7 +189,7 @@ let applied: string[] = [];
 
 export function applyTheme(id: ThemeId) {
   const root = document.documentElement;
-  const p = PALETTES[id] ?? PALETTES.graphite;
+  const p = PALETTES[id] ?? PALETTES[DEFAULT_THEME];
   for (const k of applied) root.style.removeProperty(k);
   const vars = themeVars(p);
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
@@ -212,10 +216,15 @@ export function isLightTheme(id: ThemeId): boolean {
 }
 
 export function bootPrefs() {
-  const saved = localStorage.getItem("aether.theme") || "graphite";
+  let saved = localStorage.getItem("aether.theme") || DEFAULT_THEME;
+  // Rove's own greys became the main theme: whoever still had the old
+  // default moves to it once; picked again after that, it stays
+  if (!localStorage.getItem("aether.theme.v4") && saved === "github") saved = DEFAULT_THEME;
   const theme = (RETIRED[saved] ?? saved) as ThemeId;
   localStorage.setItem("aether.theme.v2", "1");
+  localStorage.setItem("aether.theme.v3", "1");
+  localStorage.setItem("aether.theme.v4", "1");
   const lang = localStorage.getItem("aether.lang") || "tr";
-  applyTheme(theme in PALETTES ? theme : "graphite");
+  applyTheme(theme in PALETTES ? theme : DEFAULT_THEME);
   applyLang(lang);
 }

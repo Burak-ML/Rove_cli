@@ -3,6 +3,7 @@ import { render } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Thinking } from "../app/Thinking";
+import { MarkSvg } from "../app/AgentMark";
 
 const chat = readFileSync(resolve(__dirname, "../app/Chat.tsx"), "utf8");
 const css = readFileSync(resolve(__dirname, "../styles/global.css"), "utf8");
@@ -18,6 +19,14 @@ describe("Thinking", () => {
   it("prefers the live word over the standing one", () => {
     const { container } = render(<Thinking label="yazıyor…" lang="tr" />);
     expect(container.querySelector(".think-word")?.textContent).toBe("yazıyor…");
+  });
+
+  it("in an agent's chat the agent itself thinks, not the cloud", () => {
+    const { container } = render(<Thinking lang="tr" who={<MarkSvg m={{ shape: "circle", face: "eyes", color: "#14c8b8" }} thinking />} />);
+    expect(container.querySelector(".think-cloud")).toBeNull();
+    expect(container.querySelector(".agent-mark.pondering")).toBeTruthy();
+    expect(container.querySelectorAll(".mark-thought i")).toHaveLength(3);
+    expect(container.querySelector(".think-word")?.textContent).toBe("düşünüyor…");
   });
 
   it("carries the cloud with its cursor and sweep", () => {
@@ -44,7 +53,7 @@ describe("waiting for an answer", () => {
   });
 
   it("puts the cloud under the question while the agent works", () => {
-    expect(chat).toContain("{busy && !streaming && <Thinking label={live} lang={lang} />}");
+    expect(chat).toContain("{busy && !streaming && (\n              <Thinking\n                label={live}");
   });
 
   // Without room below it, a new question sits on the bottom edge under the

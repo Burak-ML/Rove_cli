@@ -6,7 +6,6 @@ import { Icon } from "./Icons";
 import { TerminalDeck } from "./TerminalDeck";
 import { SessionSidebar } from "./SessionSidebar";
 import { TeamBar } from "./TeamBar";
-import { StaffBoard } from "./StaffBoard";
 import { PanelGuard } from "./PanelGuard";
 import { SubagentDock } from "./SubagentDock";
 import { PermissionAsk } from "./PermissionAsk";
@@ -22,7 +21,7 @@ import { CommandPalette, type PaletteAction } from "./CommandPalette";
 import { useWorkspaces } from "~/hooks/useApi";
 import { usePersonaBadges } from "~/hooks/usePersona";
 import { usePrefs } from "~/hooks/usePrefs";
-import { applyTheme, isLightTheme, type ThemeId } from "~/lib/themes";
+import { DEFAULT_THEME, applyTheme, isLightTheme, type ThemeId } from "~/lib/themes";
 import { t } from "~/lib/i18n";
 import {
   isMode, LAST, loadModes, loadTop, saveModes, saveTop, sessionMode, spaceOf, TOPS, withMode,
@@ -36,6 +35,7 @@ import { watchFinishes } from "~/lib/notify";
 import { ConnectionBanner, ConnectionMenu } from "./ConnectionMenu";
 import { FolderBrowserHost } from "./FolderBrowser";
 import { ApiBanner } from "./ApiBanner";
+import { AgentCreate } from "./AgentCreate";
 import type { OfficeIntent } from "./OfficePanel";
 import { UpdateBanner } from "./UpdateBanner";
 import { SIDE, columns, dragWidth, fitsSide, loadWidth, maxWidth } from "~/lib/layout";
@@ -101,6 +101,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("appearance");
   const [officeIntent, setOfficeIntent] = useState<OfficeIntent>({ mode: "list" });
+  const [creatingAgent, setCreatingAgent] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { lang, theme } = usePrefs();
   const { workspaces } = useWorkspaces();
@@ -184,20 +185,6 @@ export function App() {
     setTop(sp);
   }, [badgeFor, selectIn, setTop]);
 
-  // openSessionById opens a chat known only by its id (a task's, from the
-  // Agent space's board).
-  const openSessionById = useCallback(async (id: string) => {
-    const list = (await rpc<Session[]>("session.list", { workspaceId: "" }).catch(() => [])) ?? [];
-    const s = list.find((x) => x.id === id);
-    if (s) openSession(s);
-  }, [openSession]);
-
-  // The Agent space's board: no chat open.
-  const showBoard = useCallback(() => {
-    setSel((cur) => ({ ...cur, office: NOTHING }));
-    setTop("office");
-  }, [setTop]);
-
   // A new chat in a space: a draft (in Office, with the agent it will talk
   // to; in Chat, in the mode picked for it — none yet shows the picker).
   // Office without an agent has nothing to open.
@@ -276,8 +263,15 @@ export function App() {
     setOfficeIntent({ mode: "list" });
     setSettingsOpen(true);
   }, []);
-  // the office is staffed in Settings → Office: a new agent, or one to edit
+  // the Models window sends you to add a provider
+  useEffect(() => {
+    const on = (e: Event) => openSettings((e as CustomEvent<SettingsSection>).detail);
+    window.addEventListener("rove:open-settings", on);
+    return () => window.removeEventListener("rove:open-settings", on);
+  }, [openSettings]);
+  // a new agent is a small window of its own; one is edited in Settings → Office
   const openOffice = useCallback((intent: OfficeIntent) => {
+    if (intent.mode === "new") { setCreatingAgent(true); return; }
     setSettingsSection("profiles");
     setOfficeIntent(intent);
     setSettingsOpen(true);
@@ -305,6 +299,12 @@ export function App() {
         setPaletteOpen((v) => !v);
         return;
       }
+      // the spaces without a side list have no other way to Settings
+      if (meta && e.key === ",") {
+        e.preventDefault();
+        openSettings();
+        return;
+      }
       // ⌘1…⌘3 switch spaces
       if (meta && /^[1-3]$/.test(e.key)) {
         e.preventDefault();
@@ -325,7 +325,8 @@ export function App() {
   }, [ready]);
 
   const dark = !isLightTheme(theme as ThemeId);
-  const toggleTheme = useCallback(() => applyTheme(dark ? "daylight" : "graphite"), [dark]);
+  // the sun/moon button flips between the main theme and its light twin
+  const toggleTheme = useCallback(() => applyTheme(dark ? "github-light" : DEFAULT_THEME), [dark]);
 
   if (!ready) {
     return <div className="boot">Starting Rove Code…</div>;
@@ -366,6 +367,7 @@ export function App() {
       workspacePath={workspace?.path}
       session={session}
       draft={sel[sp].draft && !sel[sp].session}
+      draftAgent={sel[sp].agent}
       onCreateSession={() => createFromDraft(sp)}
       // /new keeps talking to the same agent
       onNewDraft={() => (sp === "office"
@@ -388,17 +390,14 @@ export function App() {
     switch (top) {
       case "office": {
         const o = sel.office;
-        // nothing open: the team itself, who is working on what
+        // the side list opens the latest chat; this is for when there is none
         if (!o.session && !o.draft) {
           return (
             <div className="panel center-panel">
-              <StaffBoard
-                workspace={workspace}
-                onOpenSession={(id) => void openSessionById(id)}
-                onTalk={(id) => newDraft("office", id)}
-                onEdit={(id) => openOffice({ mode: "edit", id })}
-                onAdd={() => openOffice({ mode: "new" })}
-              />
+              <div className="agent-home">
+                <p>{t("agentHome", lang)}</p>
+                <button type="button" className="primary" onClick={() => openOffice({ mode: "new" })}>{t("ofNew", lang)}</button>
+              </div>
             </div>
           );
         }
@@ -419,13 +418,7 @@ export function App() {
       case "market":
         return (
           <div className="panel center-panel">
-            <div className="market-head">
-              <button type="button" className="market-back" onClick={() => setTop(beforeMarket)}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M15 5l-7 7 7 7" /></svg>
-                {t("back", lang)}
-              </button>
-            </div>
-            <Suspense fallback={null}><SkillMarket /></Suspense>
+            <Suspense fallback={null}><SkillMarket onBack={() => setTop(beforeMarket)} /></Suspense>
           </div>
         );
       default: {
@@ -515,8 +508,6 @@ export function App() {
         <div className="tb-right">
           {/* where sessions run: this computer or an SSH server, picked here */}
           <ConnectionMenu lang={lang} onAddServer={() => openSettings("servers")} />
-          <span className={`tb-status${rpcOk ? " ok" : ""}`} title={rpcOk ? t("connected", lang) : "offline"} />
-          <button type="button" className="tb-icon" title={t("settings", lang)} onClick={() => openSettings("appearance")}><Icon name="sliders" size={15} /></button>
         </div>
       </header>
 
@@ -538,12 +529,11 @@ export function App() {
             draft={sel[space].draft && !sel[space].session}
             draftAgent={sel[space].agent}
             onNewChat={(agent, mode) => newDraft(space, agent ?? null, mode)}
-            onBoard={showBoard}
             rpcOk={rpcOk}
             dark={dark}
             onToggleTheme={toggleTheme}
             onOpenMarket={openMarket}
-            onOpenSettings={() => openSettings("appearance")}
+            onOpenSettings={openSettings}
             onOfficeAgent={openOffice}
             modeOf={(s) => sessionMode(s, modes)}
           />
@@ -575,6 +565,10 @@ export function App() {
             sessionId={chat.session?.id}
           />
         </Suspense>
+      )}
+
+      {creatingAgent && (
+        <AgentCreate lang={lang} onClose={() => setCreatingAgent(false)} onCreated={(p) => { setCreatingAgent(false); newDraft("office", p.id); }} />
       )}
 
       <CommandPalette

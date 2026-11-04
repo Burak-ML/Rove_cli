@@ -14,11 +14,16 @@ export type Connection = {
   bin?: string;
   install?: string;
   login?: string;
+  logout?: string;
   baseUrl?: string;
   needKey?: boolean;
   keyUrl?: string;
   docs?: string;
   models?: string[];
+  free?: boolean;
+  tokenCmd?: string;
+  tokenSaved?: boolean;
+  browserLogin?: boolean;
   installed?: boolean;
   version?: string;
   loggedIn?: boolean;
@@ -40,7 +45,7 @@ const GROUPS: { kind: Connection["kind"]; key: string }[] = [
 
 // ConnectPicker is "add a provider" as a list of the systems a user can
 // connect their own account to: agent systems on this computer (Claude Code,
-// Codex, Antigravity, Hermes) that sign in through the browser, model APIs
+// Codex, Antigravity, Hermes, OpenCode) that sign in through the browser, model APIs
 // that take a key, and local servers. It says what is installed and signed
 // in, opens the terminal for an install or a sign-in, and the browser for a
 // key page.
@@ -48,6 +53,7 @@ export function ConnectPicker({ lang, providers, onDone, onClose }: Props) {
   const [list, setList] = useState<Connection[] | null>(null);
   const [query, setQuery] = useState("");
   const [pick, setPick] = useState<Connection | null>(null);
+  const [custom, setCustom] = useState(false);
   const [checking, setChecking] = useState(false);
 
   const load = useCallback(async () => {
@@ -82,7 +88,9 @@ export function ConnectPicker({ lang, providers, onDone, onClose }: Props) {
 
   return (
     <div className="con">
-      {!pick ? (
+      {custom ? (
+        <CustomSetup lang={lang} providers={providers} onBack={() => setCustom(false)} onDone={onDone} />
+      ) : !pick ? (
         <>
           <div className="con-top">
             <input autoFocus className="con-search" value={query} placeholder={t("conSearch", lang)} onChange={(e) => setQuery(e.target.value)} />
@@ -102,6 +110,7 @@ export function ConnectPicker({ lang, providers, onDone, onClose }: Props) {
                         <strong>{c.name}</strong>
                         <span className="con-state">
                           {connected(c) ? <em className="ok">{t("conConnected", lang)}</em>
+                            : c.free && c.installed ? <em className="ok">{t("conFree", lang)}</em>
                             : c.kind === "agent" ? (c.installed ? (c.loggedIn === false ? <em className="warn">{t("conNotSignedIn", lang)}</em> : <em className="ok">{t("conInstalled", lang)}</em>) : <em>{t("conNotInstalled", lang)}</em>)
                             : c.needKey ? <em>{t("conNeedsKey", lang)}</em> : <em>{t("conNoKey", lang)}</em>}
                         </span>
@@ -112,25 +121,73 @@ export function ConnectPicker({ lang, providers, onDone, onClose }: Props) {
               </section>
             );
           })}
+          {list !== null && (
+            <section className="con-group">
+              <div className="section-label">{t("conGroupCustom", lang)}</div>
+              <div className="con-grid">
+                <button type="button" className="con-card" onClick={() => setCustom(true)}>
+                  <span className="con-body">
+                    <strong>{t("conCustomName", lang)}</strong>
+                    <span className="con-state"><em>{t("conCustomHint", lang)}</em></span>
+                  </span>
+                </button>
+              </div>
+            </section>
+          )}
         </>
       ) : pick.kind === "agent" ? (
-        <AgentSetup c={pick} lang={lang} checking={checking} onRecheck={() => void load()} onBack={() => setPick(null)} onDone={onDone} />
+        <AgentSetup c={pick} lang={lang} current={providers.find((p) => p.kind === "agent-cli" && p.baseUrl.startsWith(`agent://${pick.id}?`))} checking={checking} onRecheck={() => void load()} onBack={() => setPick(null)} onDone={onDone} />
       ) : (
-        <ApiSetup c={pick} lang={lang} onBack={() => setPick(null)} onDone={onDone} />
+        <ApiSetup c={pick} lang={lang} existed={connected(pick)} onBack={() => setPick(null)} onDone={onDone} />
       )}
     </div>
   );
 }
 
-function AgentSetup({ c, lang, checking, onRecheck, onBack, onDone }: {
-  c: Connection; lang: Lang; checking: boolean; onRecheck: () => void; onBack: () => void; onDone: () => void | Promise<void>;
+function AgentSetup({ c, lang, current, checking, onRecheck, onBack, onDone }: {
+  c: Connection; lang: Lang; current?: Provider; checking: boolean; onRecheck: () => void; onBack: () => void; onDone: () => void | Promise<void>;
 }) {
-  const [access, setAccess] = useState<"edits" | "full">("edits");
+  // connecting again keeps the access it has
+  const [access, setAccess] = useState<"edits" | "full">(current?.baseUrl.includes("access=full") ? "full" : "edits");
+  const needsSignIn = c.installed && c.loggedIn === false;
   const [busy, setBusy] = useState(false);
-  const step = async (s: "install" | "login") => {
+  const [token, setToken] = useState("");
+  // a browser sign-in under way: the address in case no browser opened, and
+  // whether the old account is still signed in
+  const [waiting, setWaiting] = useState<{ url: string; was: boolean; until: number } | null>(null);
+
+  // the program finishes the sign-in by itself: look until it has
+  useEffect(() => {
+    if (!waiting) return;
+    if (c.loggedIn === false && waiting.was) { setWaiting({ ...waiting, was: false }); return; }
+    if ((c.loggedIn === true && !waiting.was) || Date.now() > waiting.until) { setWaiting(null); return; }
+    const id = window.setTimeout(onRecheck, 2000);
+    return () => window.clearTimeout(id);
+  }, [waiting, c, onRecheck]);
+
+  const browser = async (s: "login" | "switch" | "logout") => {
+    try {
+      const r = await rpc<{ url?: string }>("connect.browser", { id: c.id, step: s });
+      if (s === "logout") { onRecheck(); return; }
+      setWaiting({ url: r.url ?? "", was: s === "switch", until: Date.now() + 5 * 60_000 });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "failed", "err");
+    }
+  };
+  const saveToken = async (value: string) => {
+    try {
+      await rpc("connect.token", { id: c.id, token: value });
+      setToken("");
+      onRecheck();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "failed", "err");
+    }
+  };
+  const step = async (s: "install" | "login" | "logout" | "switch" | "token") => {
+    const opened = { install: "conInstallOpened", login: "conLoginOpened", logout: "conSignOutOpened", switch: "conSwitchOpened", token: "conTokenOpened" } as const;
     try {
       await rpc("connect.terminal", { id: c.id, step: s });
-      toast(t(s === "install" ? "conInstallOpened" : "conLoginOpened", lang), "ok");
+      toast(t(opened[s], lang), "ok");
     } catch (e) {
       toast(e instanceof Error ? e.message : "failed", "err");
     }
@@ -167,16 +224,40 @@ function AgentSetup({ c, lang, checking, onRecheck, onBack, onDone }: {
             ? <button type="button" onClick={() => void step("install")}>{t("conRunInTerminal", lang)}</button>
             : c.docs && <button type="button" onClick={() => openExternal(c.docs!)}>{t("conOpenDocs", lang)} ↗</button>)}
         </li>
-        <li className={!c.installed ? "" : c.loggedIn === true ? "done" : "now"}>
+        <li className={!c.installed ? "" : c.loggedIn === true || c.free ? "done" : "now"}>
           <div className="con-step-main">
             <strong>{t("conStepLogin", lang)}</strong>
             <span>
-              {c.loggedIn === true ? `${t("conSignedIn", lang)}${c.account ? ` · ${c.account}` : ""}`
+              {c.tokenSaved ? t("conTokenSaved", lang)
+                : waiting ? t("conBrowserWaiting", lang)
+                : c.loggedIn === true ? `${t("conSignedIn", lang)}${c.account ? ` · ${c.account}` : ""}`
+                : c.free ? t("conFreeHint", lang)
+                : c.tokenCmd ? t("conTokenHint", lang)
+                : c.browserLogin ? t("conBrowserHint", lang)
                 : c.loggedIn === false ? t("conSignInHint", lang)
                 : t("conSignInUnknown", lang)}
             </span>
+            {waiting?.url && <button type="button" className="con-link" onClick={() => openExternal(waiting.url)}>{t("conBrowserOpen", lang)} ↗</button>}
+            {c.installed && c.tokenCmd && !c.tokenSaved && c.loggedIn !== true && (
+              <div className="con-key">
+                <input type="password" autoComplete="off" aria-label={t("conTokenLabel", lang)} placeholder={t("conTokenLabel", lang)} value={token} onChange={(e) => setToken(e.target.value)} />
+                <button type="button" disabled={!token.trim()} onClick={() => void saveToken(token)}>{t("conTokenSave", lang)}</button>
+              </div>
+            )}
           </div>
-          {c.installed && c.loggedIn !== true && <button type="button" onClick={() => void step("login")}>{t("conSignIn", lang)} ↗</button>}
+          {c.installed && c.tokenCmd && !c.tokenSaved && c.loggedIn !== true && <button type="button" onClick={() => void step("token")}>{t("conTokenMake", lang)} ↗</button>}
+          {c.installed && c.tokenSaved && <button type="button" className="ghost" onClick={() => void saveToken("")}>{t("conTokenRemove", lang)}</button>}
+          {c.installed && !c.tokenCmd && c.loggedIn !== true && (c.browserLogin
+            ? <button type="button" disabled={Boolean(waiting)} onClick={() => void browser("login")}>{t("conBrowserSignIn", lang)} ↗</button>
+            : <button type="button" onClick={() => void step("login")}>{t("conSignIn", lang)} ↗</button>)}
+          {/* the account is the one the program on this computer is signed
+              in to: another account means signing out of it first */}
+          {c.installed && c.loggedIn === true && !c.tokenSaved && c.logout && (
+            <span className="con-step-btns">
+              <button type="button" onClick={() => void (c.browserLogin ? browser("switch") : step("switch"))}>{t("conSwitch", lang)} ↗</button>
+              <button type="button" className="ghost" onClick={() => void (c.browserLogin ? browser("logout") : step("logout"))}>{t("conSignOut", lang)}</button>
+            </span>
+          )}
         </li>
         <li className={c.installed ? "now" : ""}>
           <div className="con-step-main">
@@ -196,15 +277,15 @@ function AgentSetup({ c, lang, checking, onRecheck, onBack, onDone }: {
       <div className="con-actions">
         <button type="button" className="ghost" disabled={checking} onClick={onRecheck}>{checking ? t("conChecking", lang) : `↻ ${t("conRecheck", lang)}`}</button>
         {c.docs && <button type="button" className="ghost" onClick={() => openExternal(c.docs!)}>{t("conOpenDocs", lang)} ↗</button>}
-        <button type="button" className="primary" disabled={!c.installed || busy} onClick={() => void add()}>
-          {busy ? "…" : t("conConnect", lang)}
+        <button type="button" className="primary" disabled={!c.installed || needsSignIn || busy} title={needsSignIn ? t("conSignInFirst", lang) : undefined} onClick={() => void add()}>
+          {busy ? "…" : t(current ? "conUpdate" : "conConnect", lang)}
         </button>
       </div>
     </div>
   );
 }
 
-function ApiSetup({ c, lang, onBack, onDone }: { c: Connection; lang: Lang; onBack: () => void; onDone: () => void | Promise<void> }) {
+function ApiSetup({ c, lang, existed, onBack, onDone }: { c: Connection; lang: Lang; existed: boolean; onBack: () => void; onDone: () => void | Promise<void> }) {
   const [key, setKey] = useState("");
   const [base, setBase] = useState(c.baseUrl ?? "");
   const [busy, setBusy] = useState(false);
@@ -213,10 +294,14 @@ function ApiSetup({ c, lang, onBack, onDone }: { c: Connection; lang: Lang; onBa
     setBusy(true);
     setErr("");
     try {
-      const secretId = `${c.id}-key`;
+      const secretId = c.needKey ? `${c.id}-key` : "";
       if (key.trim()) await rpc("secret.put", { id: secretId, value: key.trim() });
-      const r = await rpc<Provider & { modelsError?: string }>("provider.upsert", { name: c.name, kind: "openai-compat", baseUrl: base.trim(), secretId, models: [] });
+      // Anthropic signs its model list differently from the rest
+      const kind = c.id === "anthropic" ? "anthropic" : "openai-compat";
+      const r = await rpc<Provider & { modelsError?: string }>("provider.upsert", { name: c.name, kind, baseUrl: base.trim(), secretId, models: [] });
       if (r.modelsError) {
+        // a key that does not work must not show as connected
+        if (!existed) await rpc("provider.delete", { id: r.id }).catch(() => {});
         setErr(`${t("provModelsFailed", lang)}: ${r.modelsError}`);
         return;
       }
@@ -254,6 +339,66 @@ function ApiSetup({ c, lang, onBack, onDone }: { c: Connection; lang: Lang; onBa
         <div className="con-actions">
           {c.docs && <button type="button" className="ghost" onClick={() => openExternal(c.docs!)}>{t("conOpenDocs", lang)} ↗</button>}
           <button type="button" className="primary" disabled={busy || (c.needKey && !key.trim())} onClick={() => void save()}>
+            {busy ? t("provFetching", lang) : t("conConnect", lang)}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// CustomSetup adds any OpenAI-compatible address. Its models are read from the
+// address itself; a model id is only for a server that does not list them.
+function CustomSetup({ lang, providers, onBack, onDone }: { lang: Lang; providers: Provider[]; onBack: () => void; onDone: () => void | Promise<void> }) {
+  const [name, setName] = useState("");
+  const [base, setBase] = useState("");
+  const [key, setKey] = useState("");
+  const [model, setModel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const save = async () => {
+    const title = name.trim();
+    setBusy(true);
+    setErr("");
+    try {
+      const secretId = `${title}-key`;
+      if (key.trim()) await rpc("secret.put", { id: secretId, value: key.trim() });
+      const models = model.split(/[,\n]/).map((m) => m.trim()).filter(Boolean);
+      const r = await rpc<Provider & { modelsError?: string }>("provider.upsert", { name: title, kind: "openai-compat", baseUrl: base.trim(), secretId, models });
+      if (r.modelsError) {
+        if (!providers.some((p) => p.name === title)) await rpc("provider.delete", { id: r.id }).catch(() => {});
+        setErr(`${t("provModelsFailed", lang)}: ${r.modelsError}`);
+        return;
+      }
+      toast(`${title}: ${r.models?.length ?? 0} ${t("provModelsAdded", lang)}`, "ok");
+      await onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="con-setup">
+      <button type="button" className="ghost con-back" onClick={onBack}>← {t("conBack", lang)}</button>
+      <div className="con-head">
+        <div>
+          <h3>{t("conCustomName", lang)}</h3>
+          <p>{t("conCustomLead", lang)}</p>
+        </div>
+      </div>
+      <div className="form-stack">
+        <label>{t("fieldName", lang)}</label>
+        <input autoFocus placeholder="my-provider" value={name} onChange={(e) => setName(e.target.value)} />
+        <label>{t("providerBaseUrl", lang)}</label>
+        <input placeholder="https://api.example.com/v1" value={base} onChange={(e) => setBase(e.target.value)} />
+        <label>{t("providerApiKey", lang)}</label>
+        <input type="password" autoComplete="off" placeholder="sk-…" value={key} onChange={(e) => setKey(e.target.value)} />
+        <label>{t("provModelId", lang)}</label>
+        <input placeholder={t("provModelsPlaceholder", lang)} value={model} onChange={(e) => setModel(e.target.value)} />
+        {err && <div className="prov-err">{err}</div>}
+        <div className="con-actions">
+          <button type="button" className="primary" disabled={busy || !name.trim() || !base.trim()} onClick={() => void save()}>
             {busy ? t("provFetching", lang) : t("conConnect", lang)}
           </button>
         </div>

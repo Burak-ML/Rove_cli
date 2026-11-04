@@ -1,4 +1,6 @@
-import type { Character, PersonaBadge, Session } from "./types";
+import { splitAsk } from "./ask";
+import { splitContext } from "./attachments";
+import type { Character, Message, PersonaBadge, Session } from "./types";
 
 // "My agents": the catalog characters the user picked for the sidebar's
 // Agents tab. Only the choice lives here; each agent's chats are found by
@@ -67,4 +69,36 @@ export function chatsByProfile(sessions: Session[], badgeFor: (id: string) => Pe
     else out.set(p, [s]);
   }
   return out;
+}
+
+// The agents pinned above the Agent space's list, in pin order.
+const PINS_KEY = "rove.agents.pinned";
+
+export function loadPins(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PINS_KEY) || "[]") as unknown;
+    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function savePins(ids: string[]) {
+  try { localStorage.setItem(PINS_KEY, JSON.stringify(ids)); } catch { /* private */ }
+}
+
+// chatPreview is what an agent's row shows under its name: the first line of
+// the last thing said in the chat, without its markdown.
+export function chatPreview(messages: Message[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if ((m.role !== "user" && m.role !== "assistant") || m.kind === "summary") continue;
+    const asked = splitAsk(m.content);
+    const text = m.role === "user" ? splitContext(m.content).text : asked.body || asked.ask?.question || "";
+    const line = text.split("\n")
+      .map((l) => l.replace(/^[\s#>*-]+/, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*`~]/g, "").trim())
+      .find(Boolean);
+    if (line) return line;
+  }
+  return "";
 }

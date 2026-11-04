@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pickFolder, rpc, subscribeEvents } from "~/lib/rpc";
-import type { Session, Workspace } from "~/lib/types";
+import type { AgentProfile, Message, Session, Workspace } from "~/lib/types";
 import { useWorkspaces } from "~/hooks/useApi";
 import { usePersonaBadges } from "~/hooks/usePersona";
 import { useProfiles } from "~/hooks/useApi";
-import { chatsByProfile } from "~/lib/agents";
+import { chatPreview, chatsByProfile, loadPins, savePins } from "~/lib/agents";
 import { moveOffice } from "~/lib/office";
 import { CHAT_MODES, spaceOf, type ChatMode, type Space } from "~/lib/spaces";
 import { MODE_ICON } from "./ModePicker";
@@ -12,6 +12,7 @@ import { usePrefs } from "~/hooks/usePrefs";
 import { t } from "~/lib/i18n";
 import { pollWhileVisible } from "~/lib/poll";
 import { toast } from "~/lib/toast";
+import { APP_VERSION } from "~/lib/version";
 import { Icon } from "./Icons";
 import { AgentMark } from "./AgentMark";
 import type { OfficeIntent } from "./OfficePanel";
@@ -32,13 +33,11 @@ interface Props {
   // opens a draft, with an agent or without, and (in Code) in a chosen
   // mode; the session is only created by its first message
   onNewChat: (characterId?: string | null, mode?: ChatMode) => void;
-  // Agent: back to the team's board
-  onBoard?: () => void;
   rpcOk: boolean;
   dark: boolean;
   onToggleTheme: () => void;
   onOpenMarket: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (section?: "appearance" | "usage") => void;
   // Office: agents are added and edited in Settings → Office
   onOfficeAgent?: (intent: OfficeIntent) => void;
   // Chat only: the mode each session runs in (fixed when it started)
@@ -70,7 +69,7 @@ export function ago(iso: string | undefined, lang: string): string {
 // with the mode it runs in.
 export function SessionSidebar({
   space, workspace, onSelectWorkspace, activeSessionId, onSelectSession, draft, draftAgent, onNewChat,
-  rpcOk, dark, onToggleTheme, onOpenMarket, onOpenSettings, onOfficeAgent, modeOf, onBoard,
+  rpcOk, dark, onToggleTheme, onOpenMarket, onOpenSettings, onOfficeAgent, modeOf,
 }: Props) {
   const { lang } = usePrefs();
   const { workspaces, reload: reloadWs } = useWorkspaces();
@@ -79,6 +78,14 @@ export function SessionSidebar({
   const [allSessions, setSessions] = useState<Session[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [filter, setFilter] = useState("");
+  // Agent: the search box opens from its button
+  const [searching, setSearching] = useState(false);
+  const [pins, setPins] = useState<string[]>(loadPins);
+  // the last thing said in each agent's latest chat, by that chat and its
+  // update time, so a chat is only read again once it has changed
+  const [previews, setPreviews] = useState<Record<string, string>>({});
+  const previewFor = useRef(new Set<string>());
+  const [previewTick, setPreviewTick] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   // Code: + opens a menu below it, and the new session's mode is picked there
   const [newOpen, setNewOpen] = useState(false);
@@ -93,6 +100,9 @@ export function SessionSidebar({
   const [failed, setFailed] = useState<Set<string>>(new Set());
   const [usage, setUsage] = useState<UsageSnapshot | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // the menu at the foot of the list
+  const [footOpen, setFootOpen] = useState(false);
+  const footRef = useRef<HTMLDivElement | null>(null);
   const activeIdRef = useRef(activeSessionId);
   useEffect(() => { activeIdRef.current = activeSessionId; }, [activeSessionId]);
 
@@ -113,7 +123,9 @@ export function SessionSidebar({
     window.addEventListener("rove:sessions", on);
     // a chat is named after its first message the moment it is sent
     const off = subscribeEvents("session.updated", on);
-    return () => { stop(); window.removeEventListener("rove:sessions", on); off(); };
+    // an agent can make a new agent when asked
+    const offAgents = subscribeEvents("profile.updated", () => window.dispatchEvent(new Event("rove:profiles")));
+    return () => { stop(); window.removeEventListener("rove:sessions", on); off(); offAgents(); };
   }, [reload]);
 
   useEffect(() => {
@@ -143,6 +155,9 @@ export function SessionSidebar({
       const sid = sessionOf(ev);
       if (!sid) return;
       setRunning((s) => without(s, sid));
+      // its row shows the last thing said: read that chat again
+      for (const k of previewFor.current) if (k.startsWith(`${sid}:`)) previewFor.current.delete(k);
+      setPreviewTick((n) => n + 1);
       const p = (ev.payload ?? {}) as { error?: string; cancelled?: boolean };
       if (p.error) {
         setFailed((s) => (s.has(sid) ? s : new Set(s).add(sid)));
@@ -152,6 +167,7 @@ export function SessionSidebar({
       setDoneUnseen((s) => (s.has(sid) ? s : new Set(s).add(sid)));
     };
     const offs = [
+      subscribeEvents("run.start", markRunning),
       subscribeEvents("message.delta", markRunning),
       subscribeEvents("tool.start", markRunning),
       subscribeEvents("tool.result", markRunning),
@@ -176,6 +192,7 @@ export function SessionSidebar({
     const onDoc = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
       if (newRef.current && !newRef.current.contains(e.target as Node)) setNewOpen(false);
+      if (footRef.current && !footRef.current.contains(e.target as Node)) setFootOpen(false);
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
@@ -201,7 +218,7 @@ export function SessionSidebar({
   const wsById = useMemo(() => new Map(workspaces.map((w) => [w.id, w])), [workspaces]);
 
   // Code always has something open: the most recent chat, else a new
-  // draft. (Agent opens on its board.) Only when nothing is open — a chat
+  // draft. Only when nothing is open — a chat
   // that was just created (by a draft's first message) is not in this list
   // until the next reload, and must not be swapped for another one meanwhile.
   useEffect(() => {
@@ -249,6 +266,8 @@ export function SessionSidebar({
     window.dispatchEvent(new Event("rove:sessions"));
   };
 
+  const footItem = (run: () => void) => { setFootOpen(false); run(); };
+
   const q = filter.trim().toLocaleLowerCase("tr");
   const list = q
     ? sessions.filter((s) => [s.title, wsById.get(s.workspaceId)?.name ?? ""].some((x) => x.toLocaleLowerCase("tr").includes(q)))
@@ -261,15 +280,51 @@ export function SessionSidebar({
     else onNewChat(id);
   };
   const activeAgent = profiles.find((p) => (byAgent.get(p.id) ?? []).some((x) => x.id === activeSessionId) || (draft && draftAgent === p.id)) ?? null;
+  // Agent too: the latest chat with one of its agents, else a first chat
+  // with the first agent
+  useEffect(() => {
+    if (space !== "office" || !loaded || draft || activeSessionId || profiles.length === 0) return;
+    const latest = sessions.find((s) => profiles.some((p) => p.id === badgeFor(s.id)?.profileId));
+    if (latest) onSelectSession(latest);
+    else if (sessions.length === 0) onNewChat(profiles[0].id);
+  }, [space, loaded, draft, activeSessionId, profiles, sessions, badgeFor, onSelectSession, onNewChat]);
+
+  const previewKey = (s: Session) => `${s.id}:${s.updatedAt}`;
+  const latestKeys = space === "office" ? profiles.flatMap((p) => byAgent.get(p.id)?.[0] ?? []).map(previewKey).join(" ") : "";
+
+  useEffect(() => {
+    for (const key of latestKeys.split(" ").filter(Boolean)) {
+      if (previewFor.current.has(key)) continue;
+      previewFor.current.add(key);
+      const sessionId = key.slice(0, key.indexOf(":"));
+      rpc<Message[]>("session.history", { sessionId })
+        .then((got) => setPreviews((p) => ({ ...p, [key]: chatPreview(got ?? []) })))
+        .catch(() => {});
+    }
+  }, [latestKeys, previewTick]);
+
+  const previewOf = (s: Session) => previews[previewKey(s)] || s.title || t("chat", lang);
+  const jobOf = (id: string) => {
+    const chats = byAgent.get(id) ?? [];
+    return chats.some((x) => running.has(x.id)) ? "running" : chats.some((x) => doneUnseen.has(x.id)) ? "done" : null;
+  };
+  const togglePin = (id: string) => {
+    const next = pins.includes(id) ? pins.filter((x) => x !== id) : [...pins, id];
+    setPins(next);
+    savePins(next);
+  };
+  const closeSearch = () => { setSearching(false); setFilter(""); };
+  // a search looks through every agent; otherwise the pinned ones sit above
+  // the list instead of in it
+  const pinned = q ? [] : pins.map((id) => profiles.find((p) => p.id === id)).filter((p): p is AgentProfile => Boolean(p));
+  const agentRows = profiles.filter((p) => {
+    if (!q) return !pins.includes(p.id);
+    const latest = byAgent.get(p.id)?.[0];
+    return [p.name, latest ? previewOf(latest) : ""].some((x) => x.toLocaleLowerCase("tr").includes(q));
+  });
 
   return (
     <aside className={`shell-side panel space-${space}`}>
-      {/* the marketplace is a place you go, not a setting: it sits at the
-          top of the list rather than among the icons at the foot */}
-      <button type="button" className="side-link" onClick={onOpenMarket}>
-        <Icon name="cart" size={14} />
-        <span>{t("marketplace", lang)}</span>
-      </button>
       <div className="side-head">
         <span className="side-title">{t(space === "office" ? "sideAgents" : "sessions", lang)}</span>
         {space === "chat" ? (
@@ -285,18 +340,12 @@ export function SessionSidebar({
               </button>
               {newOpen && (
                 <div className="pane-menu side-menu new-mode-menu" role="menu" aria-label={t("newSessionMode", lang)}>
-                  <div className="modes-head">{t("newSessionMode", lang)}</div>
-                  {CHAT_MODES.map((m, i) => (
-                    <button type="button" role="menuitem" key={m} className={`new-mode-item mode-${m}`} onClick={() => { setNewOpen(false); onNewChat(null, m); }}>
-                      <span className="new-mode-icon"><Icon name={MODE_ICON[m]} size={15} /></span>
-                      <span className="modes-text">
-                        <strong>{t(`mode_${m}`, lang)}</strong>
-                        <span>{t(`modeHint_${m}`, lang)}</span>
-                      </span>
-                      <kbd>{i + 1}</kbd>
+                  {CHAT_MODES.map((m) => (
+                    <button type="button" role="menuitem" key={m} className="new-mode-item" onClick={() => { setNewOpen(false); onNewChat(null, m); }}>
+                      <Icon name={MODE_ICON[m]} size={15} />
+                      <strong>{t(`mode_${m}`, lang)}</strong>
                     </button>
                   ))}
-                  <div className="new-mode-foot"><Icon name="lock" size={11} /> {t("modeFixedNote", lang)}</div>
                 </div>
               )}
             </div>
@@ -312,9 +361,14 @@ export function SessionSidebar({
             )}
           </div>
         ) : (
-          <button type="button" className="tree-icon" title={t("ofAddInSettings", lang)} onClick={() => onOfficeAgent?.({ mode: "new" })}>
-            <Icon name="plus" size={14} />
-          </button>
+          <div className="side-round-btns">
+            <button type="button" className={`side-round${searching ? " on" : ""}`} title={t("agentSearch", lang)} aria-expanded={searching} onClick={() => { if (searching) closeSearch(); else setSearching(true); }}>
+              <Icon name="search" size={15} />
+            </button>
+            <button type="button" className="side-round" title={t("ofAddInSettings", lang)} onClick={() => onOfficeAgent?.({ mode: "new" })}>
+              <Icon name="plus" size={15} />
+            </button>
+          </div>
         )}
       </div>
 
@@ -377,17 +431,28 @@ export function SessionSidebar({
         </>
       ) : (
         <div className="tree office-tree">
-          {onBoard && profiles.length > 0 && (
-            <button type="button" className={`sess-row staff-board-row${!activeSessionId && !draft ? " active" : ""}`} onClick={onBoard}>
-              <Icon name="agents" size={14} />
-              <strong>{t("staffTitle", lang)}</strong>
-            </button>
+          {searching && (
+            <div className="side-search">
+              <input
+                autoFocus
+                value={filter}
+                placeholder={t("agentSearch", lang)}
+                onChange={(e) => setFilter(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}
+              />
+            </div>
           )}
-          {activeAgent && (
-            <div className="office-hero">
-              <AgentMark mark={activeAgent.mark} color={activeAgent.color} seed={activeAgent.id} character={activeAgent.characterId} size={46} />
-              <strong>{activeAgent.name}</strong>
-              <span>{activeAgent.model || t("ofModelChat", lang)}</span>
+          {pinned.length > 0 && (
+            <div className="agent-pins">
+              {pinned.map((p) => (
+                <div key={p.id} className={`agent-pin${activeAgent?.id === p.id ? " active" : ""}`}>
+                  <button type="button" className="agent-pin-main" onClick={() => openAgent(p.id)} title={p.name}>
+                    <AgentMark mark={p.mark} color={p.color} seed={p.id} character={p.characterId} size={48} status={jobOf(p.id)} thinking={jobOf(p.id) === "running"} />
+                    <span>{p.name}</span>
+                  </button>
+                  <button type="button" className="tree-icon agent-unpin" title={t("agentUnpin", lang)} onClick={() => togglePin(p.id)}>×</button>
+                </div>
+              ))}
             </div>
           )}
           {profiles.length === 0 && (
@@ -396,38 +461,53 @@ export function SessionSidebar({
               <button type="button" className="primary" onClick={() => onOfficeAgent?.({ mode: "new" })}>+ {t("ofAddInSettings", lang)}</button>
             </div>
           )}
-          {profiles.map((p) => {
-            const chats = byAgent.get(p.id) ?? [];
-            const latest = chats[0];
+          {agentRows.map((p) => {
+            const latest = byAgent.get(p.id)?.[0];
             const on = activeAgent?.id === p.id;
-            const live = chats.some((x) => running.has(x.id));
-            const job = live ? "running" : chats.some((x) => doneUnseen.has(x.id)) ? "done" : null;
             return (
               <div key={p.id} className={`sess-row agent-chat-row${on ? " active" : ""}`}>
                 <button type="button" className="agent-row" onClick={() => openAgent(p.id)} title={p.name}>
-                  <AgentMark mark={p.mark} color={p.color} seed={p.id} character={p.characterId} size={26} status={job} />
+                  <AgentMark mark={p.mark} color={p.color} seed={p.id} character={p.characterId} size={40} status={jobOf(p.id)} thinking={jobOf(p.id) === "running"} />
                   <span className="agent-row-text">
                     <strong>{p.name}</strong>
-                    <span>{latest ? latest.title || t("chat", lang) : t("agentStart", lang)}</span>
+                    <span>{latest ? previewOf(latest) : t("agentStart", lang)}</span>
                   </span>
-                  {latest && <span className="agent-chat-ago">{ago(latest.updatedAt, lang)}</span>}
                 </button>
-                <button type="button" className="tree-icon tree-hover" title={t("ofEditAgent", lang)} onClick={() => onOfficeAgent?.({ mode: "edit", id: p.id })}>
-                  <Icon name="sliders" size={13} />
-                </button>
+                <div className="agent-row-actions">
+                  <button type="button" className="tree-icon" title={t(pins.includes(p.id) ? "agentUnpin" : "agentPin", lang)} onClick={() => togglePin(p.id)}>
+                    <Icon name="pin" size={13} />
+                  </button>
+                  <button type="button" className="tree-icon" title={t("ofEditAgent", lang)} onClick={() => onOfficeAgent?.({ mode: "edit", id: p.id })}>
+                    <Icon name="sliders" size={13} />
+                  </button>
+                </div>
               </div>
             );
           })}
         </div>
       )}
 
-      <div className="side-foot">
-        <div className="side-who">
-          <div className="side-plan"><span className={`side-dot${rpcOk ? " ok" : ""}`} />{t(rpcOk ? "connected" : "offline", lang)}</div>
-          <div className="side-usage">{usage ? `${compact(usage.totalTokens)} token · ${usage.calls} ${t("calls", lang)}` : "—"}</div>
-        </div>
-        <button type="button" className="tree-icon" title={t(dark ? "themeLight" : "themeDark", lang)} onClick={onToggleTheme}><Icon name={dark ? "sun" : "moon"} size={15} /></button>
-        <button type="button" className="tree-icon" title={t("settings", lang)} onClick={onOpenSettings}><Icon name="sliders" size={15} /></button>
+      {/* no account here: Rove runs on this computer, so the foot says how it
+          is connected and opens the app's own menu */}
+      <div className="side-foot" ref={footRef} onKeyDown={(e) => { if (e.key === "Escape") setFootOpen(false); }}>
+        {footOpen && (
+          <div className="side-foot-menu" role="menu">
+            <button type="button" role="menuitem" onClick={() => footItem(() => onOpenSettings())}><Icon name="settings" size={15} /> {t("settings", lang)}</button>
+            <button type="button" role="menuitem" onClick={() => footItem(() => onOpenSettings("usage"))}><Icon name="chart" size={15} /> {t("usage", lang)}</button>
+            <button type="button" role="menuitem" onClick={() => footItem(() => onOpenSettings())}><Icon name="globe" size={15} /> {t("language", lang)}</button>
+            <button type="button" role="menuitem" onClick={() => footItem(onToggleTheme)}><Icon name={dark ? "sun" : "moon"} size={15} /> {t(dark ? "themeLight" : "themeDark", lang)}</button>
+            {space === "chat" && (
+              <button type="button" role="menuitem" onClick={() => footItem(onOpenMarket)}><Icon name="puzzle" size={15} /> {t("marketplace", lang)}</button>
+            )}
+            <hr />
+            <div className="side-foot-version">Rove Code v{APP_VERSION}</div>
+          </div>
+        )}
+        <button type="button" className="side-who" aria-haspopup="menu" aria-expanded={footOpen} onClick={() => setFootOpen((v) => !v)}>
+          <span className="side-plan"><span className={`side-dot${rpcOk ? " ok" : ""}`} />{t(rpcOk ? "connected" : "offline", lang)}<span className="side-caret"><Icon name="chevronDown" size={12} /></span></span>
+          <span className="side-usage">{usage ? `${compact(usage.totalTokens)} token · ${usage.calls} ${t("calls", lang)}` : "—"}</span>
+        </button>
+        <button type="button" className="tree-icon" title={t("settings", lang)} onClick={() => onOpenSettings()}><Icon name="settings" size={16} /></button>
       </div>
     </aside>
   );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { rpc } from "~/lib/rpc";
 import type { AutomationJob, AutomationTemplate, InstalledSkill, MarketSkill } from "~/lib/types";
 import { useSkills } from "~/hooks/useApi";
@@ -30,7 +30,29 @@ function humanSeconds(s: number) {
   return `${Math.round(s / 86400)}d`;
 }
 
-export function SkillMarket() {
+// Extensions: one card per thing to put on the machine — a mark, its name
+// and who made it, what it does, and the one action at its top right.
+function ExtCard({ icon, name, sub, desc, action, children, installed }: {
+  icon: Parameters<typeof Icon>[0]["name"]; name: string; sub?: string; desc: string;
+  action?: ReactNode; children?: ReactNode; installed?: boolean;
+}) {
+  return (
+    <article className={`ext-card${installed ? " installed" : ""}`}>
+      <div className="ext-card-top">
+        <div className="ext-icon"><Icon name={icon} size={18} /></div>
+        <div className="ext-name">
+          <strong>{name}</strong>
+          {sub && <span>{sub}</span>}
+        </div>
+        {action}
+      </div>
+      <p className="ext-desc">{desc}</p>
+      {children}
+    </article>
+  );
+}
+
+export function SkillMarket({ onBack }: { onBack?: () => void } = {}) {
   const { skills, reload: reloadSkills } = useSkills();
   const { lang } = usePrefs();
   const [kind, setKind] = useState<Kind>("plugins");
@@ -180,9 +202,16 @@ export function SkillMarket() {
         type="button"
         className={`catalog-act${on ? " on" : ""}`}
         disabled={busy}
+        title={on ? t("remove", lang) : undefined}
         onClick={() => void (on ? removeSkill(name) : installSkill(name))}
       >
-        {busy ? t("installing", lang) : on ? t("remove", lang) : t("install", lang)}
+        {/* an installed one reads as done; hovering it offers the removal */}
+        {busy ? t("installing", lang) : on ? (
+          <>
+            <span className="act-done"><Icon name="check" size={12} /> {t("extInstalled", lang)}</span>
+            <span className="act-undo">{t("remove", lang)}</span>
+          </>
+        ) : t("install", lang)}
       </button>
     );
   };
@@ -197,28 +226,36 @@ export function SkillMarket() {
   return (
     <div className="catalog">
       <header className="catalog-head">
-        <div className="mode-switch">
-          <button className={kind === "plugins" ? "active" : ""} onClick={() => setKind("plugins")}>
-            <Icon name="box" size={13} /> {t("plugins", lang)}
+        {onBack && (
+          <button type="button" className="market-back" onClick={onBack}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M15 5l-7 7 7 7" /></svg>
+            {t("back", lang)}
           </button>
-          <button className={kind === "skills" ? "active" : ""} onClick={() => setKind("skills")}>
-            <Icon name="skills" size={13} /> {t("skills", lang)}
-          </button>
-          <button className={kind === "automations" ? "active" : ""} onClick={() => setKind("automations")}>
-            <Icon name="lightning" size={13} /> {t("automations", lang)}
-          </button>
-        </div>
-        {kind !== "automations" && (
-          <div className="catalog-search">
-            <Icon name="search" size={14} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
-              placeholder={t("search", lang)}
-            />
-          </div>
         )}
+        <div className="ext-hero">
+          <div className="ext-hero-text">
+            <h1>{t("marketplace", lang)}</h1>
+            <p>{t("extLead", lang)}</p>
+          </div>
+          {kind !== "automations" && (
+            <div className="catalog-search">
+              <Icon name="search" size={14} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
+                placeholder={t("search", lang)}
+              />
+            </div>
+          )}
+        </div>
+        <nav className="ext-tabs" role="tablist">
+          {([["plugins", "box"], ["skills", "skills"], ["automations", "lightning"]] as const).map(([k, icon]) => (
+            <button key={k} type="button" role="tab" aria-selected={kind === k} className={kind === k ? "active" : ""} onClick={() => setKind(k)}>
+              <Icon name={icon} size={13} /> {t(k, lang)}
+            </button>
+          ))}
+        </nav>
       </header>
 
       <div className="catalog-body">
@@ -236,21 +273,15 @@ export function SkillMarket() {
             ) : (
               <div className="catalog-grid">
                 {plugins.map((s: MarketSkill) => (
-                  <article key={s.manifest.name} className="catalog-card">
-                    <div className="catalog-card-icon"><Icon name="box" size={16} /></div>
-                    <div className="catalog-card-body">
-                      <h3>
-                        {s.manifest.name}
-                        <span>v{s.manifest.version}</span>
-                      </h3>
-                      <p>{s.manifest.description || t("noDescription", lang)}</p>
-                      <div className="chip-row" style={{ margin: "8px 0 0" }}>
-                        <span className="chip">rovecode</span>
-                        {s.manifest.author && <span className="chip">{s.manifest.author}</span>}
-                      </div>
-                      <div className="catalog-card-foot">{cardAction(s.manifest.name)}</div>
-                    </div>
-                  </article>
+                  <ExtCard
+                    key={s.manifest.name}
+                    icon="box"
+                    name={s.manifest.name}
+                    sub={`${s.manifest.author || "rovecode"} · v${s.manifest.version}`}
+                    desc={s.manifest.description || t("noDescription", lang)}
+                    installed={installedNames.has(s.manifest.name)}
+                    action={cardAction(s.manifest.name)}
+                  />
                 ))}
               </div>
             )}
@@ -260,23 +291,21 @@ export function SkillMarket() {
             {installedFiltered.length > 0 && (
               <div className="catalog-grid">
                 {installedFiltered.map((s: InstalledSkill) => (
-                  <article key={s.manifest.name} className="catalog-card">
-                    <div className="catalog-card-icon"><Icon name="box" size={16} /></div>
-                    <div className="catalog-card-body">
-                      <h3>
-                        {s.manifest.name}
-                        <span>v{s.manifest.version}</span>
-                      </h3>
-                      <p>{s.manifest.description || t("noDescription", lang)}</p>
-                      {permBits(s.manifest.permissions).length > 0 && (
-                        <div className="chip-row" style={{ margin: "8px 0 0" }}>
-                          {permBits(s.manifest.permissions).map((b) => (
-                            <span key={b} className="chip" style={{ color: "var(--bad)" }}>{b}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </article>
+                  <ExtCard
+                    key={s.manifest.name}
+                    icon="box"
+                    name={s.manifest.name}
+                    sub={`v${s.manifest.version}`}
+                    desc={s.manifest.description || t("noDescription", lang)}
+                    installed
+                    action={cardAction(s.manifest.name)}
+                  >
+                    {permBits(s.manifest.permissions).length > 0 && (
+                      <div className="ext-tags">
+                        {permBits(s.manifest.permissions).map((b) => <span key={b} className="ext-tag warn">{b}</span>)}
+                      </div>
+                    )}
+                  </ExtCard>
                 ))}
               </div>
             )}
@@ -299,18 +328,15 @@ export function SkillMarket() {
                   <div className="catalog-meta">{plugin} · {items.length}</div>
                   <div className="catalog-grid">
                     {items.map((s: MarketSkill) => (
-                      <article key={s.manifest.name} className="catalog-card">
-                        <div className="catalog-card-icon"><Icon name="skills" size={16} /></div>
-                        <div className="catalog-card-body">
-                          <h3>
-                            {s.manifest.name}
-                            <span>v{s.manifest.version}</span>
-                            {s.signed && <span className="badge ok" style={{ marginLeft: 6 }}>{t("signed", lang)}</span>}
-                          </h3>
-                          <p>{s.manifest.description || t("noDescription", lang)}</p>
-                          <div className="catalog-card-foot">{cardAction(s.manifest.name)}</div>
-                        </div>
-                      </article>
+                      <ExtCard
+                        key={s.manifest.name}
+                        icon="skills"
+                        name={s.manifest.name}
+                        sub={`v${s.manifest.version}${s.signed ? ` · ${t("signed", lang)}` : ""}`}
+                        desc={s.manifest.description || t("noDescription", lang)}
+                        installed={installedNames.has(s.manifest.name)}
+                        action={cardAction(s.manifest.name)}
+                      />
                     ))}
                   </div>
                 </section>

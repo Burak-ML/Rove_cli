@@ -80,7 +80,9 @@ const sidebar = () => document.querySelector(".shell-side") as HTMLElement;
 // Orchestra's team: a row of chips over the message box
 const teamBar = () => document.querySelector(".persona-bar .team") as HTMLElement | null;
 const rows = () => Array.from(sidebar().querySelectorAll(".sess-row"));
-const composer = () => screen.getByPlaceholderText("Mesaj…") as HTMLTextAreaElement;
+// an agent's row shows the chat's last message, so its title is read from the daemon
+const chatTitles = async () => (await list<{ title: string }>("session.list")).map((x) => x.title);
+const composer = () => screen.getByPlaceholderText(/^Mesaj…$|için mesaj yazın$/) as HTMLTextAreaElement;
 async function send(text: string) {
   await waitFor(() => expect(composer().disabled).toBe(false), { timeout: T });
   fireEvent.change(composer(), { target: { value: text } });
@@ -123,7 +125,7 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     const { App } = await import("../app/App");
     render(<App />);
     const space = (name: string) => fireEvent.click(within(document.querySelector(".tb-modes") as HTMLElement).getByRole("tab", { name }));
-    const personaChip = () => document.querySelector(".persona-bar")?.textContent ?? "";
+    const personaChip = () => document.querySelector(".thread-agent")?.textContent ?? "";
     const agentRow = (name: string) =>
       Array.from(sidebar().querySelectorAll(".agent-chat-row")).find((r) => r.querySelector(".agent-row strong")?.textContent === name) as HTMLElement | undefined;
     const rowTitled = (title: string) => rows().find((r) => r.textContent?.includes(title)) as HTMLElement | undefined;
@@ -137,30 +139,26 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     const tabs = within(document.querySelector(".tb-modes") as HTMLElement).getAllByRole("tab").map((b) => b.textContent);
     expect(tabs).toEqual(["Agent", "Code", "Otomasyon"]);
     expect(sidebar().querySelector(".side-title")?.textContent).toBe("Ajanlar");
-    // the Agent space opens on its team's board, empty for now
-    await waitFor(() => expect(document.querySelector(".staff-empty")?.textContent).toContain("Ekibin boş"), { timeout: T });
+    // with no agents the Agent space invites you to make one
+    await waitFor(() => expect(document.querySelector(".agent-home")?.textContent).toContain("Yeni ajan"), { timeout: T });
     expect(document.querySelector(".shell-right")).toBeNull(); // no right panel at all
     expect(teamBar()).toBeNull(); // and no team in Office
     expect(await list("session.list")).toHaveLength(0);
 
     // 2. Office: agents are made in Settings → Office; only they are listed,
     //    and a row is the chat with that agent
-    expect(sidebar().textContent).toContain("Ekibinde henüz ajan yok");
+    expect(sidebar().textContent).toContain("Henüz ajan yok");
     expect(sidebar().querySelector(".agent-picker")).toBeNull();
     fireEvent.click(within(sidebar()).getByTitle("Ajan ekle"));
     const nameBox = await screen.findByLabelText("Ad", {}, { timeout: T });
     fireEvent.change(nameBox, { target: { value: "Reklam & Pazarlama Uzmanı" } });
-    // the catalog loads once, async
-    fireEvent.click((await screen.findByText("Reklam & Pazarlama Uzmanı", { selector: ".office-form .persona-card strong" }, { timeout: T })).closest(".persona-card")!);
-    fireEvent.click(screen.getByRole("button", { name: "Ajanı ekle" }));
-    await waitFor(() => expect(document.querySelector(".office-row")?.textContent).toContain("Reklam & Pazarlama Uzmanı"), { timeout: T });
-    fireEvent.click(screen.getByTitle("Kapat"));
+    fireEvent.click(screen.getByRole("button", { name: "Oluştur" }));
     await waitFor(() => expect(agentRow("Reklam & Pazarlama Uzmanı")).toBeTruthy(), { timeout: T });
-    // the agent's logo: the marketing field's shape
+    // the agent's logo
     expect(agentRow("Reklam & Pazarlama Uzmanı")!.querySelector(".agent-mark svg")).toBeTruthy();
     fireEvent.click(agentRow("Reklam & Pazarlama Uzmanı")!.querySelector(".agent-row")!);
     await send("Yeni ürün için reklam metni yaz");
-    await waitFor(() => expect(agentRow("Reklam & Pazarlama Uzmanı")?.textContent).toContain("Yeni ürün için reklam metni yaz"), { timeout: T });
+    await waitFor(async () => expect(await chatTitles()).toContain("Yeni ürün için reklam metni yaz"), { timeout: T });
     await waitFor(() => expect(replies()).toBeGreaterThan(0), { timeout: T });
     await waitFor(() => expect(personaChip()).toContain("Reklam & Pazarlama Uzmanı"), { timeout: T });
     expect(personaChip()).not.toMatch(/özellik|token|≈/);
@@ -174,14 +172,14 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     await waitFor(() => expect(agentRow("Frontend Uzmanı")).toBeTruthy(), { timeout: T });
     fireEvent.click(agentRow("Frontend Uzmanı")!.querySelector(".agent-row")!);
     await send("Butonları yuvarlak yap");
-    await waitFor(() => expect(agentRow("Frontend Uzmanı")?.textContent).toContain("Butonları yuvarlak yap"), { timeout: T });
+    await waitFor(async () => expect(await chatTitles()).toContain("Butonları yuvarlak yap"), { timeout: T });
     fireEvent.click(agentRow("Reklam & Pazarlama Uzmanı")!.querySelector(".agent-row")!);
     await waitFor(() => expect(transcript()).toContain("Yeni ürün için reklam metni yaz"), { timeout: T });
     expect(transcript()).not.toContain("Butonları yuvarlak yap");
     await send("/new");
     await waitFor(() => expect(replies()).toBe(0), { timeout: T });
     await send("Instagram kampanyası planla");
-    await waitFor(() => expect(agentRow("Reklam & Pazarlama Uzmanı")?.textContent).toContain("Instagram kampanyası planla"), { timeout: T });
+    await waitFor(async () => expect(await chatTitles()).toContain("Instagram kampanyası planla"), { timeout: T });
     expect(sidebar().querySelectorAll(".agent-chat-row")).toHaveLength(2);
 
     // 4. Chat: only sessions, none of Office's; a draft opens by itself
@@ -433,7 +431,7 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     //     clicks, and its chats go with it
     space("Agent");
     // wait for the row's chats, not just the row (chats load after agents)
-    await waitFor(() => expect(agentRow("Reklam & Pazarlama Uzmanı")?.textContent).toContain("Instagram kampanyası planla"), { timeout: T });
+    await waitFor(async () => expect(await chatTitles()).toContain("Instagram kampanyası planla"), { timeout: T });
     fireEvent.click(within(agentRow("Reklam & Pazarlama Uzmanı")!).getByTitle("Ajanı düzenle"));
     fireEvent.click(await screen.findByRole("button", { name: "← Agent" }, { timeout: T }));
     const adsRow = await waitFor(() => {
@@ -465,10 +463,12 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     const modelsURL = `http://127.0.0.1:${(models.address() as { port: number }).port}/v1`;
     fireEvent.click(within(sidebar()).getByTitle("Ayarlar"));
     fireEvent.click(await screen.findByRole("button", { name: /Sağlayıcılar/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Ekle/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Özel sağlayıcı/ }, { timeout: T }));
     fireEvent.change(await screen.findByPlaceholderText("my-provider"), { target: { value: "qwen" } });
     fireEvent.change(screen.getByPlaceholderText("https://api.example.com/v1"), { target: { value: modelsURL } });
     fireEvent.change(screen.getByPlaceholderText("sk-…"), { target: { value: "sk-e2e" } });
-    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bağla" }));
     const provRow = () => document.querySelector('.prov-row[data-provider="qwen"]') as HTMLElement | null;
     await waitFor(() => expect(Array.from(provRow()?.querySelectorAll(".prov-models code") ?? []).map((c) => c.textContent)).toEqual(["qwen3-coder", "qwen3-max"]), { timeout: T });
     expect(sawKey).toBe("Bearer sk-e2e"); // the key was stored before the models were asked for
@@ -485,15 +485,18 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Agent$/ }));
     fireEvent.click(await screen.findByRole("button", { name: /Yeni ajan/ }));
     fireEvent.change(await screen.findByLabelText("Ad"), { target: { value: "Test Ajanı" } });
-    fireEvent.change(screen.getByPlaceholderText(/ödeme servisinden/), { target: { value: "Yalnızca Go kodu yazarsın." } });
+    fireEvent.click(screen.getByRole("button", { name: "Oluştur" }));
+    const officeRow = (name: string) => Array.from(document.querySelectorAll(".office-row")).find((r) => r.textContent?.includes(name)) as HTMLElement | undefined;
+    await waitFor(() => expect(officeRow("Test Ajanı")).toBeTruthy(), { timeout: T });
+    fireEvent.click(within(officeRow("Test Ajanı")!).getByText("Düzenle"));
+    fireEvent.change(await screen.findByPlaceholderText(/ödeme servisinden/), { target: { value: "Yalnızca Go kodu yazarsın." } });
     fireEvent.change(screen.getByPlaceholderText(/Model ara/), { target: { value: "qwen3-max" } });
     fireEvent.click(await within(screen.getByRole("listbox", { name: "Model" })).findByText("qwen3-max", {}, { timeout: T }));
-    fireEvent.click(screen.getByRole("button", { name: "Ajanı ekle" }));
-    const officeRow = (name: string) => Array.from(document.querySelectorAll(".office-row")).find((r) => r.textContent?.includes(name)) as HTMLElement | undefined;
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
     await waitFor(() => expect(officeRow("Test Ajanı")?.textContent).toContain("qwen3-max"), { timeout: T });
     const made = (await list<{ name: string; model: string; provider: string; systemPrompt: string; mark: string }>("profile.list")).find((p) => p.name === "Test Ajanı")!;
     expect(made).toMatchObject({ model: "qwen3-max", provider: "qwen", systemPrompt: "Yalnızca Go kodu yazarsın." });
-    expect(made.mark).toMatch(/^[a-z]+:prompt$/);
+    expect(made.mark).toMatch(/^[a-z]+:eyes$/);
     fireEvent.click(within(officeRow("Test Ajanı")!).getByText("Sil"));
     expect((await list<{ name: string }>("profile.list")).map((p) => p.name)).toContain("Test Ajanı");
     fireEvent.click(within(officeRow("Test Ajanı")!).getByText("Silinsin mi?"));
@@ -507,8 +510,6 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     // an agent keeps the name it was given; the office around it is English
     await waitFor(() => expect(agentRow("Frontend Uzmanı")).toBeTruthy(), { timeout: T });
     fireEvent.click(within(sidebar()).getByTitle("Add an agent"));
-    await screen.findByText("Starting character", {}, { timeout: T });
-    await waitFor(() => expect(document.querySelector(".office-form")?.textContent).toContain("UI/UX Designer"), { timeout: T });
-    expect(document.querySelector(".office-form")?.textContent).not.toMatch(/Tasarımcı|Yazılım/);
+    await screen.findByRole("dialog", { name: "Create a new agent" }, { timeout: T });
   }, 180_000);
 });

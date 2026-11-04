@@ -186,57 +186,6 @@ export type AgentProfile = {
   updatedAt?: string;
 };
 
-// The Agent space's team (see internal/staff): a task handed to an agent,
-// by the user or by a colleague, and what each agent is up to.
-export type StaffTaskStatus = "running" | "done" | "failed" | "stopped";
-export type StaffTask = {
-  id: ID;
-  profileId: ID;
-  profileName?: string;
-  sessionId: ID;
-  title: string;
-  brief: string;
-  // the colleague who asked; empty when the user did
-  from?: ID;
-  fromName?: string;
-  // a Session Map watch set it off, watching this chat
-  watchId?: ID;
-  scheduleId?: ID;
-  handoffId?: ID;
-  origin?: string;
-  status: StaffTaskStatus;
-  report?: string;
-  error?: string;
-  seen: boolean;
-  createdAt: string;
-  endedAt?: string;
-  // the task's own checkout and what became of its work (internal/staff/isolate.go)
-  isolation?: StaffIsolation;
-};
-export type StaffIsolation = {
-  state: "working" | "review" | "applied" | "discarded" | "pr" | "empty" | "carried";
-  files?: string[];
-  added: number;
-  removed: number;
-  pr?: string;
-  note?: string;
-};
-export type StaffNote = { id: ID; key: string; content: string; createdAt: string };
-// automations handing an agent work: a chat it watches, a timer
-export type StaffWatch = { id: ID; sessionId: ID; profileId: ID; instruction: string; filter?: string; dailyLimit: number; enabled: boolean; color?: string };
-export type StaffHandoff = { id: ID; fromId: ID; toId: ID; instruction: string; dailyLimit: number; enabled: boolean; color?: string };
-export type StaffMonitor = { id: ID; profileId: ID; name: string; command: string; instruction: string; everyMinutes: number; workspaceId?: ID; enabled: boolean; lastRun?: string; lastError?: string };
-export type MonitorPreset = { key: string; name: string; command: string; instruction: string; every: number; needs: string };
-export type StaffSchedule = { id: ID; profileId: ID; instruction: string; everyMinutes?: number; dailyAt?: string; workspaceId?: ID; enabled: boolean; lastRun?: string };
-export type StaffMember = {
-  profile: AgentProfile;
-  state: "working" | "report" | "idle";
-  now?: string;
-  nowSession?: ID;
-  tasks: StaffTask[];
-  notes: StaffNote[];
-};
-
 export type Character = {
   id: string;
   name: string;

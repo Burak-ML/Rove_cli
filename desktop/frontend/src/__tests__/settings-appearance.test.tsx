@@ -29,10 +29,11 @@ describe("settings: appearance", () => {
     render(<Settings onClose={() => {}} initialSection="appearance" />);
     const themes = await screen.findByRole("radiogroup", { name: "Tema" });
     expect(within(themes).getAllByRole("radio")).toHaveLength(THEMES.length);
+    // Rove's greys are the main theme
     expect(within(themes).getByRole("radio", { name: "Rove" }).getAttribute("aria-checked")).toBe("true");
     fireEvent.click(within(themes).getByRole("radio", { name: "Nord" }));
     expect(within(themes).getByRole("radio", { name: "Nord" }).getAttribute("aria-checked")).toBe("true");
-    expect(within(themes).getByRole("radio", { name: "Rove" }).getAttribute("aria-checked")).toBe("false");
+    expect(within(themes).getByRole("radio", { name: "GitHub Blue" }).getAttribute("aria-checked")).toBe("false");
 
     // the languages are one select, not a button per language
     const select = screen.getByRole("combobox", { name: "Dil" }) as HTMLSelectElement;

@@ -90,12 +90,28 @@ export function useSkills() {
   return { skills, reload };
 }
 
+// providersChanged tells every list of providers and models (the chat's
+// model picker among them) to read them again.
+export function providersChanged() {
+  window.dispatchEvent(new Event("rove:providers"));
+}
+
 export function useProviders() {
   const [providers, setProviders] = useState<Provider[]>([]);
-  const reload = useCallback(async () => {
+  const load = useCallback(async () => {
     try { setProviders((await rpc<Provider[]>("provider.list")) ?? []); } catch { /* keep */ }
   }, []);
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void load();
+    const on = () => void load();
+    window.addEventListener("rove:providers", on);
+    return () => window.removeEventListener("rove:providers", on);
+  }, [load]);
+  // after a change: this list and every other one read again
+  const reload = useCallback(async () => {
+    await load();
+    providersChanged();
+  }, [load]);
   return { providers, reload };
 }
 
