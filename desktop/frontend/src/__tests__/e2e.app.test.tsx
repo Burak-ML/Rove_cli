@@ -465,9 +465,9 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     fireEvent.click(await within(screen.getByRole("listbox", { name: "Model" })).findByText("qwen3-max", {}, { timeout: T }));
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
     await waitFor(() => expect(officeRow("Test Ajanı")?.textContent).toContain("qwen3-max"), { timeout: T });
-    const made = (await list<{ name: string; model: string; provider: string; systemPrompt: string; mark: string }>("profile.list")).find((p) => p.name === "Test Ajanı")!;
+    const made = (await list<{ name: string; model: string; provider: string; systemPrompt: string; color: string }>("profile.list")).find((p) => p.name === "Test Ajanı")!;
     expect(made).toMatchObject({ model: "qwen3-max", provider: "qwen", systemPrompt: "Yalnızca Go kodu yazarsın." });
-    expect(made.mark).toMatch(/^[a-z]+:eyes$/);
+    expect(made.color).toMatch(/^#[0-9a-f]{6}$/);
     fireEvent.click(within(officeRow("Test Ajanı")!).getByText("Sil"));
     expect((await list<{ name: string }>("profile.list")).map((p) => p.name)).toContain("Test Ajanı");
     fireEvent.click(within(officeRow("Test Ajanı")!).getByText("Silinsin mi?"));

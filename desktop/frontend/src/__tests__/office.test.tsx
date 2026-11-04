@@ -1,41 +1,45 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { defaultMark, markOf, SHAPES, FACES } from "~/lib/agentmark";
+import { defaultColor, markColor, MARK_COLORS } from "~/lib/agentmark";
 import type { AgentProfile } from "~/lib/types";
 
 describe("agent marks", () => {
-  it("sleeps with its eyes closed; a working agent is marked so its eyes open", () => {
-    const { container } = render(<MarkSvg m={{ shape: "circle", face: "eyes", color: "#14c8b8" }} />);
-    expect(container.querySelectorAll(".mark-closed path")).toHaveLength(2);
-    expect(container.querySelectorAll(".mark-open path")).toHaveLength(2);
+  it("rests with its eyes leaning; a working agent is marked so they stand up", () => {
+    const { container } = render(<MarkSvg color="#14c8b8" />);
+    expect(container.querySelector(".mark-idle")).toBeTruthy();
+    expect(container.querySelectorAll(".mark-open rect")).toHaveLength(2);
     expect(container.querySelector(".agent-mark")?.className).toBe("agent-mark");
     cleanup();
-    const working = render(<MarkSvg m={{ shape: "circle", face: "eyes", color: "#14c8b8" }} status="running" />);
+    const working = render(<MarkSvg color="#14c8b8" status="running" />);
     expect(working.container.querySelector(".agent-mark")?.className).toContain("running");
     cleanup();
   });
-  it("an agent keeps the same mark everywhere, and a stored one wins", () => {
-    expect(defaultMark("abc")).toEqual(defaultMark("abc"));
-    const m = markOf("hex:happy", "#14c8b8", "abc");
-    expect(m).toEqual({ shape: "hex", face: "happy", color: "#14c8b8" });
-    // a color from the old muted palette reads as the vivid one that replaced it
-    expect(markOf("hex:happy", "#43b3a8", "abc").color).toBe("#14c8b8");
-    // unknown parts fall back to the seed's
-    const d = defaultMark("abc");
-    expect(markOf("blob:grin", "red", "abc")).toEqual(d);
-    expect(SHAPES).toContain(d.shape);
-    expect(FACES).toContain(d.face);
+  it("a failed run crosses its eyes without a corner dot", () => {
+    const { container } = render(<MarkSvg color="#14c8b8" status="error" />);
+    expect(container.querySelector(".agent-mark")?.className).toContain("error");
+    expect(container.querySelector(".mark-error")).toBeTruthy();
+    expect(container.querySelector(".agent-mark-dot")).toBeNull();
+    cleanup();
   });
-  it("the shape follows the field; the shield is security's alone; the face is a pair of eyes", () => {
-    expect(defaultMark("x", "security").shape).toBe("shield");
-    expect(defaultMark("x", "frontend").shape).toBe("squircle");
-    expect(defaultMark("x", "go-backend").shape).toBe("hex");
-    for (let i = 0; i < 50; i++) expect(defaultMark(`agent-${i}`).shape).not.toBe("shield");
-    expect(defaultMark("x", "qa").face).toBe("eyes");
-    // a picked shape stays, whatever the character
-    expect(markOf("drop:happy", "#43b3a8", "x", "security").shape).toBe("drop");
-    // an agent saved with an old prompt face gets eyes
-    expect(markOf("hex:prompt", "#43b3a8", "x").face).toBe("eyes");
+  it("offline goes grey with its screen out, whatever it was doing", () => {
+    const { container } = render(<MarkSvg color="#14c8b8" status="running" thinking offline />);
+    const mark = container.querySelector(".agent-mark");
+    expect(mark?.className).toBe("agent-mark offline");
+    expect(container.querySelector(".mark-idle")).toBeNull();
+    expect(container.querySelector(".mark-open")).toBeNull();
+    expect(container.querySelector(".mark-thought")).toBeNull();
+    expect(container.innerHTML).not.toContain("#14c8b8");
+    cleanup();
+  });
+  it("an agent keeps the same color everywhere, and a stored one wins", () => {
+    expect(defaultColor("abc")).toBe(defaultColor("abc"));
+    expect(MARK_COLORS).toContain(defaultColor("abc") as (typeof MARK_COLORS)[number]);
+    expect(markColor("#14c8b8", "abc")).toBe("#14c8b8");
+    // a color from the old muted palette reads as the vivid one that replaced it
+    expect(markColor("#43b3a8", "abc")).toBe("#14c8b8");
+    // nothing usable falls back to the seed's
+    expect(markColor("red", "abc")).toBe(defaultColor("abc"));
+    expect(markColor(undefined, "abc")).toBe(defaultColor("abc"));
   });
 });
 
@@ -90,13 +94,12 @@ describe("Settings → Office", () => {
     expect(create.disabled).toBe(true); // no name, no agent
     expect(dialog.textContent).not.toContain("Frontend Uzmanı");
     fireEvent.change(within(dialog).getByLabelText("Ad"), { target: { value: "Siber güvenlik" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "hex" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "#14c8b8" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "#48b5f7" }));
     fireEvent.click(create);
     await waitFor(() => expect(calls.some(([m]) => m === "profile.upsert")).toBe(true));
     const sent = calls.find(([m]) => m === "profile.upsert")![1] as AgentProfile;
-    expect(sent).toMatchObject({ name: "Siber güvenlik", color: "#14c8b8", role: "developer" });
-    expect(sent.mark).toMatch(/^hex:[a-z]+$/);
+    expect(sent).toMatchObject({ name: "Siber güvenlik", color: "#48b5f7", role: "developer" });
+    expect(sent.mark).toBeUndefined();
     expect(sent.characterId).toBeUndefined();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });

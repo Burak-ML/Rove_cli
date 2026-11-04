@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useDialog } from "~/hooks/useDialog";
-import { defaultMark, MARK_COLORS, markString, SHAPES, type Mark } from "~/lib/agentmark";
+import { defaultColor, MARK_COLORS } from "~/lib/agentmark";
 import { t, type Lang } from "~/lib/i18n";
 import { rpc } from "~/lib/rpc";
 import type { AgentProfile } from "~/lib/types";
@@ -8,7 +8,7 @@ import { MarkSvg } from "./AgentMark";
 import { Icon } from "./Icons";
 
 // AgentCreate is how an agent comes to be: a name, which says what it is
-// for, and a logo. Everything else (prompt, model, permissions) has a working
+// for, and a color. Everything else (prompt, model, permissions) has a working
 // default and is changed later in Settings → Agent.
 export function AgentCreate({ lang, onClose, onCreated }: {
   lang: Lang;
@@ -17,7 +17,7 @@ export function AgentCreate({ lang, onClose, onCreated }: {
 }) {
   const sheet = useDialog<HTMLDivElement>();
   const [name, setName] = useState("");
-  const [mark, setMark] = useState<Mark>(() => defaultMark(Math.random().toString(36)));
+  const [color, setColor] = useState(() => defaultColor(Math.random().toString(36)));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -32,7 +32,7 @@ export function AgentCreate({ lang, onClose, onCreated }: {
     setBusy(true);
     setErr("");
     try {
-      const p = await rpc<AgentProfile>("profile.upsert", { name: name.trim(), mark: markString(mark), color: mark.color, role: "developer" });
+      const p = await rpc<AgentProfile>("profile.upsert", { name: name.trim(), color, role: "developer" });
       window.dispatchEvent(new Event("rove:profiles"));
       window.dispatchEvent(new Event("rove:persona"));
       await onCreated(p);
@@ -50,18 +50,11 @@ export function AgentCreate({ lang, onClose, onCreated }: {
           <button type="button" className="tree-icon" title={t("close", lang)} onClick={onClose}>×</button>
         </header>
         <form className="agent-create-body" onSubmit={(e) => { e.preventDefault(); void create(); }}>
-          <MarkSvg m={mark} size={96} awake />
+          <MarkSvg color={color} size={96} awake />
           <input autoFocus aria-label={t("ofName", lang)} value={name} placeholder={t("ofCreateNamePh", lang)} onChange={(e) => setName(e.target.value)} />
-          <div className="agent-create-shapes">
-            {SHAPES.map((s) => (
-              <button key={s} type="button" aria-label={s} aria-pressed={mark.shape === s} className={mark.shape === s ? "on" : ""} onClick={() => setMark({ ...mark, shape: s })}>
-                <MarkSvg m={{ ...mark, shape: s }} size={40} />
-              </button>
-            ))}
-          </div>
           <div className="agent-create-colors">
             {MARK_COLORS.map((c) => (
-              <button key={c} type="button" aria-label={c} aria-pressed={mark.color === c} className={mark.color === c ? "on" : ""} onClick={() => setMark({ ...mark, color: c })}>
+              <button key={c} type="button" aria-label={c} aria-pressed={color === c} className={color === c ? "on" : ""} onClick={() => setColor(c)}>
                 <span style={{ background: c }} />
               </button>
             ))}

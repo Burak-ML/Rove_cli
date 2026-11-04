@@ -570,7 +570,7 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
                   {(() => {
                     // an Agent-space chat carries its agent's logo
                     const b = badgeFor(id);
-                    return b ? <AgentMark mark={b.mark} color={b.color} seed={b.profileId || b.characterId || id} character={b.characterId} size={18} title={b.name} /> : null;
+                    return b ? <AgentMark color={b.color} seed={b.profileId || b.characterId || id} size={18} title={b.name} /> : null;
                   })()}
                   <span className="cmap-card-title">{s.title || id}</span>
                   <button
@@ -647,7 +647,7 @@ export function ContextMap({ onOpenSession, space, sideTop, onShowContext }: Pro
                 <div className="cmap-item-title">
                   {(() => {
                     const b = badgeFor(s.id);
-                    return b ? <AgentMark mark={b.mark} color={b.color} seed={b.profileId || b.characterId || s.id} character={b.characterId} size={16} title={b.name} /> : null;
+                    return b ? <AgentMark color={b.color} seed={b.profileId || b.characterId || s.id} size={16} title={b.name} /> : null;
                   })()}
                   <span>{s.title || s.id}</span>
                 </div>

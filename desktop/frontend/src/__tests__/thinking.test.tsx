@@ -22,7 +22,7 @@ describe("Thinking", () => {
   });
 
   it("in an agent's chat the agent itself thinks, not the cloud", () => {
-    const { container } = render(<Thinking lang="tr" who={<MarkSvg m={{ shape: "circle", face: "eyes", color: "#14c8b8" }} thinking />} />);
+    const { container } = render(<Thinking lang="tr" who={<MarkSvg color="#14c8b8" thinking />} />);
     expect(container.querySelector(".think-cloud")).toBeNull();
     expect(container.querySelector(".agent-mark.pondering")).toBeTruthy();
     expect(container.querySelectorAll(".mark-thought i")).toHaveLength(3);

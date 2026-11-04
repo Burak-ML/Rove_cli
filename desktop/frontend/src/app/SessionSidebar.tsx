@@ -306,7 +306,7 @@ export function SessionSidebar({
   const previewOf = (s: Session) => previews[previewKey(s)] || s.title || t("chat", lang);
   const jobOf = (id: string) => {
     const chats = byAgent.get(id) ?? [];
-    return chats.some((x) => running.has(x.id)) ? "running" : chats.some((x) => doneUnseen.has(x.id)) ? "done" : null;
+    return chats.some((x) => running.has(x.id)) ? "running" : chats.some((x) => failed.has(x.id)) ? "error" : chats.some((x) => doneUnseen.has(x.id)) ? "done" : null;
   };
   const togglePin = (id: string) => {
     const next = pins.includes(id) ? pins.filter((x) => x !== id) : [...pins, id];
@@ -447,7 +447,7 @@ export function SessionSidebar({
               {pinned.map((p) => (
                 <div key={p.id} className={`agent-pin${activeAgent?.id === p.id ? " active" : ""}`}>
                   <button type="button" className="agent-pin-main" onClick={() => openAgent(p.id)} title={p.name}>
-                    <AgentMark mark={p.mark} color={p.color} seed={p.id} character={p.characterId} size={48} status={jobOf(p.id)} thinking={jobOf(p.id) === "running"} />
+                    <AgentMark color={p.color} seed={p.id} size={48} status={jobOf(p.id)} thinking={jobOf(p.id) === "running"} offline={!rpcOk} />
                     <span>{p.name}</span>
                   </button>
                   <button type="button" className="tree-icon agent-unpin" title={t("agentUnpin", lang)} onClick={() => togglePin(p.id)}>×</button>
@@ -467,7 +467,7 @@ export function SessionSidebar({
             return (
               <div key={p.id} className={`sess-row agent-chat-row${on ? " active" : ""}`}>
                 <button type="button" className="agent-row" onClick={() => openAgent(p.id)} title={p.name}>
-                  <AgentMark mark={p.mark} color={p.color} seed={p.id} character={p.characterId} size={40} status={jobOf(p.id)} thinking={jobOf(p.id) === "running"} />
+                  <AgentMark color={p.color} seed={p.id} size={40} status={jobOf(p.id)} thinking={jobOf(p.id) === "running"} offline={!rpcOk} />
                   <span className="agent-row-text">
                     <strong>{p.name}</strong>
                     <span>{latest ? previewOf(latest) : t("agentStart", lang)}</span>

@@ -373,7 +373,7 @@ export function SessionContextMap({ sessionId, space, sideTop, onOpenSession }: 
               {(() => {
                 // an Agent-space chat: its agent's logo beside the chat's name
                 const b = badgeFor(s.id);
-                return b ? <AgentMark mark={b.mark} color={b.color} seed={b.profileId || b.characterId || s.id} character={b.characterId} size={16} title={b.name} /> : null;
+                return b ? <AgentMark color={b.color} seed={b.profileId || b.characterId || s.id} size={16} title={b.name} /> : null;
               })()}
               <span className="map-file">{s.title || s.id}</span>
             </button>

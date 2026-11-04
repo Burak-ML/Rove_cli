@@ -174,7 +174,8 @@ export type AgentProfile = {
   color?: string;
   characterId?: string;
   features?: string[] | null;
-  // the office logo: "shape:face", tinted with color (see lib/agentmark)
+  // the office logo is the robot in color (see lib/agentmark); mark is the old
+  // "shape:face" pick, which only agents saved before still carry
   mark?: string;
   // "own": systemPrompt replaces the character's prompt; empty adds to it
   promptMode?: "" | "own";

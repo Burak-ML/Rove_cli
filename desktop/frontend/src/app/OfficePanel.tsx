@@ -4,7 +4,7 @@ import type { AgentProfile, PersonaCatalog, Session } from "~/lib/types";
 import { useProfiles } from "~/hooks/useApi";
 import { usePersonaBadges, usePersonaCatalog } from "~/hooks/usePersona";
 import { usePrefs } from "~/hooks/usePrefs";
-import { FACES, MARK_COLORS, SHAPES, markOf, markString, type Mark } from "~/lib/agentmark";
+import { MARK_COLORS, markColor } from "~/lib/agentmark";
 import { filterModels, type ModelChoice } from "~/lib/slash";
 import { t, type Lang } from "~/lib/i18n";
 import { toast } from "~/lib/toast";
@@ -85,7 +85,7 @@ export function OfficePanel({ intent }: { intent?: OfficeIntent }) {
       {profiles.length === 0 ? (
         <div className="office-empty">
           <div className="office-empty-marks">
-            {SHAPES.slice(0, 5).map((s, i) => <MarkSvg key={s} m={{ shape: s, face: FACES[i % FACES.length], color: MARK_COLORS[i * 2] }} size={30} />)}
+            {MARK_COLORS.slice(0, 5).map((c) => <MarkSvg key={c} color={c} size={30} />)}
           </div>
           <strong>{t("ofEmpty", lang)}</strong>
           <p>{t("ofEmptyHint", lang)}</p>
@@ -97,7 +97,7 @@ export function OfficePanel({ intent }: { intent?: OfficeIntent }) {
             const n = chatsOf(p.id).length;
             return (
               <div key={p.id} className="office-row">
-                <AgentMark mark={p.mark} color={p.color} seed={p.id} character={p.characterId} size={34} />
+                <AgentMark color={p.color} seed={p.id} size={34} />
                 <button type="button" className="office-row-main" onClick={() => setDraft({ ...p })}>
                   <strong>{p.name}</strong>
                   <span className="office-row-meta">
@@ -145,7 +145,7 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const seed = d.id ?? (d.name || "new");
-  const mark = markOf(d.mark, d.color, seed, d.characterId);
+  const color = markColor(d.color, seed);
   const set = (patch: Partial<Draft>) => setD((x) => ({ ...x, ...patch }));
   // the MCP servers it can be given (Settings → MCP)
   const [servers, setServers] = useState<{ id: string; name: string }[]>([]);
@@ -154,7 +154,6 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
     rpc<{ id: string; name: string }[]>("mcp.list", {}).then((l) => { if (live) setServers(Array.isArray(l) ? l : []); }).catch(() => {});
     return () => { live = false; };
   }, []);
-  const setMark = (m: Mark) => set({ mark: markString(m), color: m.color });
 
   useEffect(() => { rpc<ModelChoice[]>("model.list").then((l) => setModels(l ?? [])).catch(() => setModels([])); }, []);
   // the picked model is in view when the list opens
@@ -185,8 +184,7 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
     const out: Partial<AgentProfile> = {
       ...d,
       name: d.name.trim(),
-      mark: markString(mark),
-      color: mark.color,
+      color,
       // an agent no longer runs on a catalog character: saving lets go of one
       characterId: "",
       promptMode: "",
@@ -220,32 +218,16 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
         {/* the agent as the office will show it */}
         <aside className="office-preview">
           <div className="office-card">
-            <MarkSvg m={mark} size={64} awake />
+            <MarkSvg color={color} size={64} awake />
             <strong>{d.name.trim() || t("ofUnnamed", lang)}</strong>
             <span>{d.title?.trim() || t("ofOwnAgent", lang)}</span>
             <span className="office-model">{d.model ? `${d.model}${d.provider ? ` · ${d.provider}` : ""}` : t("ofModelChat", lang)}</span>
           </div>
           <div className="office-mark-pick">
-            <div className="section-label">{t("ofShape", lang)}</div>
-            <div className="office-swatches">
-              {SHAPES.map((s) => (
-                <button key={s} type="button" aria-pressed={mark.shape === s} className={mark.shape === s ? "on" : ""} onClick={() => setMark({ ...mark, shape: s })}>
-                  <MarkSvg m={{ ...mark, shape: s }} size={26} />
-                </button>
-              ))}
-            </div>
-            <div className="section-label">{t("ofFace", lang)}</div>
-            <div className="office-swatches">
-              {FACES.map((f) => (
-                <button key={f} type="button" aria-pressed={mark.face === f} className={mark.face === f ? "on" : ""} onClick={() => setMark({ ...mark, face: f })}>
-                  <MarkSvg m={{ ...mark, face: f }} size={26} awake />
-                </button>
-              ))}
-            </div>
             <div className="section-label">{t("ofColor", lang)}</div>
             <div className="office-swatches colors">
               {MARK_COLORS.map((c) => (
-                <button key={c} type="button" aria-label={c} aria-pressed={mark.color === c} className={mark.color === c ? "on" : ""} onClick={() => setMark({ ...mark, color: c })}>
+                <button key={c} type="button" aria-label={c} aria-pressed={color === c} className={color === c ? "on" : ""} onClick={() => set({ color: c })}>
                   <span style={{ background: c }} />
                 </button>
               ))}

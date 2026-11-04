@@ -3042,30 +3042,31 @@ g.on .usage-hit { fill: color-mix(in srgb, var(--text) 5%, transparent); }
 .agent-create-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
 .agent-create-body { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 22px 18px 0; }
 .agent-create-body > input { width: 100%; padding: 9px 12px; border-radius: 10px; text-align: center; font-size: 13px; }
-.agent-create-shapes { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 280px; }
-.agent-create-shapes button { width: 54px; height: 54px; padding: 0; display: grid; place-items: center; border: 1px solid transparent; border-radius: 14px; background: transparent; }
-.agent-create-shapes button:hover { background: var(--bg-hover); }
-.agent-create-shapes button.on { border-color: color-mix(in srgb, var(--text) 40%, transparent); }
 .agent-create-colors { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 200px; }
 .agent-create-colors button { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border: 1px solid transparent; border-radius: 99px; background: transparent; }
 .agent-create-colors button.on { border-color: color-mix(in srgb, var(--text) 55%, transparent); }
 .agent-create-colors span { width: 22px; height: 22px; border-radius: 99px; }
 .agent-create-foot { align-self: stretch; display: flex; justify-content: flex-end; gap: 8px; margin: 0 -18px; padding: 12px 14px; border-top: 1px solid var(--border); }
 
-/* An agent's logo sleeps: its eyes are two closed arcs. While it works, or with the
-   pointer on it or on the row that holds it, they open and look around. A
-   logo in a picker (.awake) just shows its eyes open. */
+/* An agent's robot rests with its eyes leaning. While it works, or with the
+   pointer on it or on the row that holds it, they stand up and look around. A
+   robot in a picker (.awake) just shows them upright. After a failed run its
+   eyes are crossed until it runs again. */
+.agent-mark .mark-idle, .agent-mark .mark-open { transition: opacity 0.2s ease; }
 .agent-mark .mark-open { opacity: 0; }
+.agent-mark .mark-error { display: none; }
+.agent-mark.error .mark-idle, .agent-mark.error .mark-open { display: none; }
+.agent-mark.error .mark-error { display: inline; }
 .agent-mark .mark-blink { transform-box: fill-box; transform-origin: center; }
-:is(.agent-mark.running, .agent-mark.awake, .agent-mark.pondering, .agent-mark:hover, button:hover .agent-mark, .agent-chat-row:hover .agent-mark, .agent-pin:hover .agent-mark, .office-row:hover .agent-mark) .mark-closed { opacity: 0; }
+:is(.agent-mark.running, .agent-mark.awake, .agent-mark.pondering, .agent-mark:hover, button:hover .agent-mark, .agent-chat-row:hover .agent-mark, .agent-pin:hover .agent-mark, .office-row:hover .agent-mark) .mark-idle { opacity: 0; }
 :is(.agent-mark.running, .agent-mark.awake, .agent-mark.pondering, .agent-mark:hover, button:hover .agent-mark, .agent-chat-row:hover .agent-mark, .agent-pin:hover .agent-mark, .office-row:hover .agent-mark) .mark-open { opacity: 1; }
 :is(.agent-mark.running, .agent-mark:hover, button:hover .agent-mark, .agent-chat-row:hover .agent-mark, .agent-pin:hover .agent-mark, .office-row:hover .agent-mark) .mark-open { animation: mark-look 2.6s ease-in-out infinite; }
 :is(.agent-mark.running, .agent-mark:hover, button:hover .agent-mark, .agent-chat-row:hover .agent-mark, .agent-pin:hover .agent-mark, .office-row:hover .agent-mark) .mark-blink { animation: mark-blink 2.6s linear infinite; }
 @keyframes mark-look {
   0%, 12% { transform: translate(0, 0); }
-  20%, 38% { transform: translate(-2px, 0); }
-  46%, 64% { transform: translate(2px, 0); }
-  72%, 86% { transform: translate(0, -1.2px); }
+  20%, 38% { transform: translate(-8px, 0); }
+  46%, 64% { transform: translate(8px, 0); }
+  72%, 86% { transform: translate(0, -5px); }
   94%, 100% { transform: translate(0, 0); }
 }
 @keyframes mark-blink {
@@ -3132,9 +3133,9 @@ g.on .usage-hit { fill: color-mix(in srgb, var(--text) 5%, transparent); }
   50% { transform: rotate(5deg) translateY(-1px); }
 }
 @keyframes mark-gaze {
-  0%, 30% { transform: translate(1.6px, -1.8px); }
-  45%, 70% { transform: translate(-1.2px, -2px); }
-  85%, 100% { transform: translate(1.6px, -1.8px); }
+  0%, 30% { transform: translate(6.4px, -8px); }
+  45%, 70% { transform: translate(-4.8px, -8px); }
+  85%, 100% { transform: translate(6.4px, -8px); }
 }
 .mark-thought { position: absolute; top: -8px; right: -13px; display: flex; align-items: flex-end; gap: 2px; }
 .mark-thought i { display: block; border-radius: 99px; background: var(--muted); opacity: 0.2; animation: mark-thought 1.5s ease-in-out infinite; }

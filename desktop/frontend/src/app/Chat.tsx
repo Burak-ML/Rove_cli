@@ -261,7 +261,7 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
   // its is running somewhere
   const busy = sending || Boolean(streaming) || liveBlocks.length > 0;
   const agentBadge = agentProfile
-    ? <AgentMark mark={agentProfile.mark} color={agentProfile.color} seed={agentProfile.id} character={agentProfile.characterId} size={18} status={busy ? "running" : null} />
+    ? <AgentMark color={agentProfile.color} seed={agentProfile.id} size={18} status={busy ? "running" : null} />
     : <Avatar name={agentName} size="xs" accent />;
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [streamChars, setStreamChars] = useState(0);
@@ -1793,7 +1793,7 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
               <Thinking
                 label={live}
                 lang={lang}
-                who={agentProfile ? <AgentMark mark={agentProfile.mark} color={agentProfile.color} seed={agentProfile.id} character={agentProfile.characterId} size={34} thinking /> : undefined}
+                who={agentProfile ? <AgentMark color={agentProfile.color} seed={agentProfile.id} size={34} thinking /> : undefined}
               />
             )}
             <div className="thread-tail" style={{ height: tail }} />
