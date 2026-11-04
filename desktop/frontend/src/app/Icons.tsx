@@ -42,6 +42,7 @@ export function Icon({
     | "arrowLeft"
     | "arrowRight"
     | "users"
+    | "robot"
     | "target"
     | "orchestra"
     | "pin"
@@ -62,13 +63,15 @@ export function Icon({
     case "database":
       return <svg {...p}><ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6"/></svg>;
     case "chart":
-      return <svg {...p}><path d="M4 20h16"/><path d="M7 16.5v-5M12 16.5V7M17 16.5v-8"/></svg>;
+      return <svg {...p}><rect x="4" y="12" width="4.4" height="8" rx="1.2"/><rect x="9.8" y="4" width="4.4" height="16" rx="1.2"/><rect x="15.6" y="8.5" width="4.4" height="11.5" rx="1.2"/></svg>;
     case "arrowLeft":
       return <svg {...p}><path d="M19 12H5M11 6l-6 6 6 6"/></svg>;
     case "arrowRight":
       return <svg {...p}><path d="M5 12h14M13 6l6 6-6 6"/></svg>;
+    case "robot":
+      return <svg {...p}><rect x="5" y="9.5" width="14" height="10.5" rx="3.4"/><path d="M9.2 9.5 7.8 5.5M14.8 9.5l1.4-4M2.8 13.5v3.5M21.2 13.5v3.5M9.5 13.5v2.5M14.5 13.5v2.5"/><circle cx="7.5" cy="4.3" r=".9" fill="currentColor" stroke="none"/><circle cx="16.5" cy="4.3" r=".9" fill="currentColor" stroke="none"/></svg>;
     case "users":
-      return <svg {...p}><circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"/><path d="M15.5 5.8a3 3 0 0 1 0 5.4M17.5 14.6c1.6.6 2.7 2.1 3 4.4"/></svg>;
+      return <svg {...p}><circle cx="9.5" cy="8" r="3.5"/><path d="M3 20c.5-3.6 3.1-5.8 6.5-5.8S15.5 16.4 16 20"/><path d="M15.8 4.8a3.5 3.5 0 0 1 0 6.4M18.2 14.8c1.6.9 2.6 2.6 2.8 5.2"/></svg>;
     case "target":
       return <svg {...p}><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.2"/><circle cx="12" cy="12" r=".9" fill="currentColor" stroke="none"/></svg>;
     case "orchestra":
@@ -122,7 +125,7 @@ export function Icon({
     case "pulse":
       return <svg {...p}><path d="M3 12h4l2-5 4 10 2-5h6"/></svg>;
     case "key":
-      return <svg {...p}><circle cx="8" cy="14" r="3.5"/><path d="M11 12.5l8-8M16.5 4.5l3 3"/></svg>;
+      return <svg {...p}><circle cx="8" cy="15.5" r="4.5"/><path d="m11.2 12.3 8.3-8.3M15.2 8.3l3 3M18.2 5.3l2.3 2.3"/></svg>;
     case "flag":
       return <svg {...p}><path d="M6 4v16M6 5h11l-2.2 3.5L17 12H6"/></svg>;
     case "box":
@@ -134,7 +137,7 @@ export function Icon({
     case "sliders":
       return <svg {...p}><path d="M4 8h16M4 16h16"/><circle cx="9" cy="8" r="2.2" fill="currentColor" stroke="none"/><circle cx="15" cy="16" r="2.2" fill="currentColor" stroke="none"/></svg>;
     case "palette":
-      return <svg {...p}><path d="M12 3a9 9 0 1 0 0 18h1.6a2.2 2.2 0 0 0 1.7-3.6 2.2 2.2 0 0 1 1.7-3.6H18a3 3 0 0 0 0-6h-.5"/><circle cx="7.5" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="10.5" cy="7.2" r="1.1" fill="currentColor" stroke="none"/><circle cx="14.2" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8.2" cy="13.5" r="1.1" fill="currentColor" stroke="none"/></svg>;
+      return <svg {...p}><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.3 0 2.2-.9 2.2-2.1 0-.6-.2-1-.5-1.4-.3-.4-.5-.8-.5-1.3 0-1.1.9-1.9 2-1.9h1.9c2.1 0 3.9-1.7 3.9-3.8 0-3.7-4-6.5-9-6.5Z"/><circle cx="7.5" cy="11" r="1.1" fill="currentColor" stroke="none"/><circle cx="9.8" cy="7.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="14.2" cy="7.3" r="1.1" fill="currentColor" stroke="none"/></svg>;
     case "lightning":
       return <svg {...p}><path d="M13 3L4 14h8l-1 7 9-11h-8l1-7z"/></svg>;
     case "trash":

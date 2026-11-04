@@ -117,8 +117,13 @@ export function useProviders() {
 
 export function useProfiles() {
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
+  // the daemon has answered at least once, so an empty list means no agents
+  const [loaded, setLoaded] = useState(false);
   const reload = useCallback(async () => {
-    try { setProfiles(await rpc<AgentProfile[]>("profile.list") ?? []); } catch { /* keep */ }
+    try {
+      setProfiles(await rpc<AgentProfile[]>("profile.list") ?? []);
+      setLoaded(true);
+    } catch { /* keep */ }
   }, []);
   useEffect(() => {
     void reload();
@@ -129,5 +134,5 @@ export function useProfiles() {
     window.addEventListener("rove:profiles", on);
     return () => window.removeEventListener("rove:profiles", on);
   }, [reload]);
-  return { profiles, reload };
+  return { profiles, loaded, reload };
 }

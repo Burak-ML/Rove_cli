@@ -21,6 +21,8 @@ export type Connection = {
   docs?: string;
   models?: string[];
   free?: boolean;
+  onDevice?: boolean;
+  fullOnly?: boolean;
   tokenCmd?: string;
   tokenSaved?: boolean;
   browserLogin?: boolean;
@@ -35,7 +37,14 @@ interface Props {
   providers: Provider[];
   onDone: () => void | Promise<void>;
   onClose: () => void;
+  // what the button that leaves the list says, when not Cancel
+  closeLabel?: string;
+  // for an agent, which may not write: what needs full access is not offered
+  forAgent?: boolean;
 }
+
+// an agent system that brings its own providers sits with what runs here
+const groupOf = (c: Connection) => (c.onDevice ? "local" : c.kind);
 
 const GROUPS: { kind: Connection["kind"]; key: string }[] = [
   { kind: "agent", key: "conGroupAgent" },
@@ -49,7 +58,7 @@ const GROUPS: { kind: Connection["kind"]; key: string }[] = [
 // that take a key, and local servers. It says what is installed and signed
 // in, opens the terminal for an install or a sign-in, and the browser for a
 // key page.
-export function ConnectPicker({ lang, providers, onDone, onClose }: Props) {
+export function ConnectPicker({ lang, providers, onDone, onClose, closeLabel, forAgent }: Props) {
   const [list, setList] = useState<Connection[] | null>(null);
   const [query, setQuery] = useState("");
   const [pick, setPick] = useState<Connection | null>(null);
@@ -80,8 +89,8 @@ export function ConnectPicker({ lang, providers, onDone, onClose }: Props) {
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (list ?? []).filter((c) => !q || `${c.name} ${c.blurb} ${c.id}`.toLowerCase().includes(q));
-  }, [list, query]);
+    return (list ?? []).filter((c) => !(forAgent && c.fullOnly) && (!q || `${c.name} ${c.blurb} ${c.id}`.toLowerCase().includes(q)));
+  }, [list, query, forAgent]);
 
   const connected = (c: Connection) =>
     providers.some((p) => (c.kind === "agent" ? p.kind === "agent-cli" && p.baseUrl.startsWith(`agent://${c.id}?`) : p.baseUrl === c.baseUrl));
@@ -94,11 +103,11 @@ export function ConnectPicker({ lang, providers, onDone, onClose }: Props) {
         <>
           <div className="con-top">
             <input autoFocus className="con-search" value={query} placeholder={t("conSearch", lang)} onChange={(e) => setQuery(e.target.value)} />
-            <button type="button" className="ghost" onClick={onClose}>{t("cancel", lang)}</button>
+            <button type="button" className="ghost" onClick={onClose}>{closeLabel ?? t("cancel", lang)}</button>
           </div>
           {list === null && <div className="map-muted">{t("conChecking", lang)}</div>}
           {GROUPS.map((g) => {
-            const items = shown.filter((c) => c.kind === g.kind);
+            const items = shown.filter((c) => groupOf(c) === g.kind);
             if (items.length === 0) return null;
             return (
               <section key={g.kind} className="con-group">
@@ -110,7 +119,7 @@ export function ConnectPicker({ lang, providers, onDone, onClose }: Props) {
                         <strong>{c.name}</strong>
                         <span className="con-state">
                           {connected(c) ? <em className="ok">{t("conConnected", lang)}</em>
-                            : c.free && c.installed ? <em className="ok">{t("conFree", lang)}</em>
+                            : c.free ? <em className={c.installed ? "ok" : "warn"}>{t(c.installed ? "conFree" : "conFreeInstall", lang)}</em>
                             : c.kind === "agent" ? (c.installed ? (c.loggedIn === false ? <em className="warn">{t("conNotSignedIn", lang)}</em> : <em className="ok">{t("conInstalled", lang)}</em>) : <em>{t("conNotInstalled", lang)}</em>)
                             : c.needKey ? <em>{t("conNeedsKey", lang)}</em> : <em>{t("conNoKey", lang)}</em>}
                         </span>
@@ -148,10 +157,12 @@ function AgentSetup({ c, lang, current, checking, onRecheck, onBack, onDone }: {
   c: Connection; lang: Lang; current?: Provider; checking: boolean; onRecheck: () => void; onBack: () => void; onDone: () => void | Promise<void>;
 }) {
   // connecting again keeps the access it has
-  const [access, setAccess] = useState<"edits" | "full">(current?.baseUrl.includes("access=full") ? "full" : "edits");
+  const [access, setAccess] = useState<"edits" | "full">(c.fullOnly || current?.baseUrl.includes("access=full") ? "full" : "edits");
   const needsSignIn = c.installed && c.loggedIn === false;
   const [busy, setBusy] = useState(false);
   const [token, setToken] = useState("");
+  // an install running in a terminal: until when to keep looking for it
+  const [installing, setInstalling] = useState(0);
   // a browser sign-in under way: the address in case no browser opened, and
   // whether the old account is still signed in
   const [waiting, setWaiting] = useState<{ url: string; was: boolean; until: number } | null>(null);
@@ -164,6 +175,13 @@ function AgentSetup({ c, lang, current, checking, onRecheck, onBack, onDone }: {
     const id = window.setTimeout(onRecheck, 2000);
     return () => window.clearTimeout(id);
   }, [waiting, c, onRecheck]);
+
+  // the install finishes in its own window: look until the program is here
+  useEffect(() => {
+    if (!installing || c.installed || Date.now() > installing) return;
+    const id = window.setTimeout(onRecheck, 3000);
+    return () => window.clearTimeout(id);
+  }, [installing, c, onRecheck]);
 
   const browser = async (s: "login" | "switch" | "logout") => {
     try {
@@ -188,6 +206,7 @@ function AgentSetup({ c, lang, current, checking, onRecheck, onBack, onDone }: {
     try {
       await rpc("connect.terminal", { id: c.id, step: s });
       toast(t(opened[s], lang), "ok");
+      if (s === "install") setInstalling(Date.now() + 10 * 60_000);
     } catch (e) {
       toast(e instanceof Error ? e.message : "failed", "err");
     }
@@ -262,14 +281,16 @@ function AgentSetup({ c, lang, current, checking, onRecheck, onBack, onDone }: {
         <li className={c.installed ? "now" : ""}>
           <div className="con-step-main">
             <strong>{t("conStepAccess", lang)}</strong>
-            <div className="seg con-access" role="radiogroup">
-              {(["edits", "full"] as const).map((a) => (
-                <button key={a} type="button" role="radio" aria-checked={access === a} className={access === a ? "on" : ""} onClick={() => setAccess(a)}>
-                  {t(a === "edits" ? "conAccessEdits" : "conAccessFull", lang)}
-                </button>
-              ))}
-            </div>
-            <span className="con-hint">{t(access === "edits" ? "conAccessEditsHint" : "conAccessFullHint", lang)}</span>
+            {!c.fullOnly && (
+              <div className="seg con-access" role="radiogroup">
+                {(["edits", "full"] as const).map((a) => (
+                  <button key={a} type="button" role="radio" aria-checked={access === a} className={access === a ? "on" : ""} onClick={() => setAccess(a)}>
+                    {t(a === "edits" ? "conAccessEdits" : "conAccessFull", lang)}
+                  </button>
+                ))}
+              </div>
+            )}
+            <span className="con-hint">{t(c.fullOnly ? "conAccessFullOnly" : access === "edits" ? "conAccessEditsHint" : "conAccessFullHint", lang)}</span>
           </div>
         </li>
       </ol>

@@ -54,10 +54,10 @@ import { Chat } from "../app/Chat";
 const sess: Session = { id: "S", title: "S", agentId: "a1", workspaceId: "w", updatedAt: "", space: "chat" };
 const sends = () => calls.filter(([m]) => m === "session.send").map(([, p]) => p);
 
-async function openChat() {
+async function openChat(ready = true) {
   render(<Chat session={sess} workspaceId="w" workspacePath="/p" onNewDraft={() => {}} />);
   const box = (await screen.findByPlaceholderText("Mesaj…")) as HTMLTextAreaElement;
-  await waitFor(() => expect(box.disabled).toBe(false));
+  if (ready) await waitFor(() => expect(box.disabled).toBe(false));
   return box;
 }
 
@@ -81,11 +81,17 @@ describe("chat features", () => {
 
     cleanup();
     offered = []; // the provider went away
-    await openChat();
+    await openChat(false);
     await waitFor(() => expect(calls.some(([m]) => m === "model.list")).toBe(true));
-    await waitFor(() => expect(pill().textContent).not.toContain("gpt-4o"));
-    expect(pill().querySelector(".pill-label")?.textContent).toBe("·");
-    expect(pill().textContent).not.toContain("openai"); // nor the provider
+    // nothing to run on: the chat asks for a provider instead of pretending
+    await waitFor(() => expect(document.querySelector(".no-provider")).toBeTruthy());
+    expect(document.querySelector(".model-pill")).toBeNull();
+    expect((document.querySelector(".composer-input") as HTMLTextAreaElement).disabled).toBe(true);
+    const open = vi.fn();
+    window.addEventListener("rove:open-settings", open);
+    fireEvent.click(document.querySelector(".no-provider button")!);
+    window.removeEventListener("rove:open-settings", open);
+    expect((open.mock.calls[0][0] as CustomEvent).detail).toBe("providers");
 
     cleanup();
     offered = [{ provider: "other", model: "llama-4" }]; // a different one

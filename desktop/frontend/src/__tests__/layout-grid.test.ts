@@ -15,7 +15,7 @@ describe("desktop side panels", () => {
   it("shell: the sidebar is open by default, resizable, and leaves the grid when closed; no right panel", () => {
     expect(app).toContain('readFlag("aether.shell.side", true)');
     // the left rail belongs to Office and Chat; full pages (Automation, Market) drop it
-    expect(app).toContain("const showSide = sideOpen && space !== null;");
+    expect(app).toContain("const showSide = sideOpen && space !== null && !settingUp;");
     expect(app).toContain("{showSide && !sideOver && (");
     expect(app).toContain("gridTemplateColumns: columns(showSide && !sideOver ? sideW : null, null)");
     // too narrow for two columns: the list opens over the page instead

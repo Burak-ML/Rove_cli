@@ -2804,15 +2804,13 @@ g.on .usage-hit { fill: color-mix(in srgb, var(--text) 5%, transparent); }
 .sess-mode.live { animation: sess-live 1.6s ease-in-out infinite; color: var(--mc, var(--ok)); }
 @keyframes sess-live { 50% { opacity: 0.45; } }
 
-/* settings: a grouped rail, the page beside it */
+/* settings: a rail, the page beside it */
 .settings-sheet { position: relative; width: min(1160px, 94vw); height: min(800px, 90vh); }
 .settings-split { height: 100%; grid-template-columns: 236px minmax(0, 1fr); }
 .settings-rail { display: flex; flex-direction: column; min-height: 0; padding: 0 10px 12px; background: var(--side-bg); }
 .settings-rail-head { padding: 20px 10px 12px; }
 .settings-rail-head h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--side-text); }
-.settings-nav { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow: auto; }
-.settings-group { display: flex; flex-direction: column; gap: 1px; }
-.settings-group-label { padding: 2px 10px 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--side-faint); }
+.settings-nav { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; }
 .settings-rail .rail-item { color: var(--side-muted); }
 .settings-rail .rail-item:hover { color: var(--side-text); background: var(--side-hover); }
 .settings-rail .rail-item.active { color: var(--side-text); }
@@ -3076,6 +3074,22 @@ g.on .usage-hit { fill: color-mix(in srgb, var(--text) 5%, transparent); }
 @media (prefers-reduced-motion: reduce) {
   .agent-mark .mark-open, .agent-mark .mark-blink { animation: none !important; }
 }
+
+/* a chat with nothing to run on */
+.no-provider { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-hover); font-size: 12.5px; color: var(--muted); }
+.no-provider span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.no-provider strong { color: var(--text); font-weight: 600; }
+.no-provider button { flex-shrink: 0; }
+
+/* the first time in the Agent space: a name, a color, a provider */
+.agent-setup { height: 100%; display: flex; padding: 24px 16px; overflow: auto; }
+.agent-setup-form { width: min(340px, 100%); margin: auto; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+.agent-setup-form h1 { margin: 8px 0 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+.agent-setup-form p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.agent-setup-form.wide { width: min(680px, 100%); }
+.agent-setup-form .con { width: 100%; margin-bottom: 0; text-align: left; }
+.agent-setup-form > input { width: 100%; padding: 10px 12px; border-radius: 10px; text-align: center; font-size: 14px; }
+.agent-setup-foot { align-self: stretch; display: flex; justify-content: center; gap: 8px; margin-top: 6px; }
 
 /* the Agent space with nothing to open */
 .agent-home { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 13px; }

@@ -22,6 +22,47 @@ async function open(c: Connection) {
   fireEvent.click(await screen.findByRole("button", { name: new RegExp(c.name) }));
 }
 
+describe("what the list shows", () => {
+  afterEach(() => { cleanup(); calls.length = 0; });
+
+  const hermes: Connection = { id: "hermes", name: "Hermes Agent", kind: "agent", blurb: "", onDevice: true, installed: true };
+  const opencode: Connection = { id: "opencode", name: "OpenCode", kind: "agent", blurb: "", onDevice: true, free: true, install: "curl x | bash", installed: false };
+  const kimi: Connection = { id: "kimi", name: "Kimi Code", kind: "agent", blurb: "", fullOnly: true, installed: true, loggedIn: true };
+
+  it("what brings its own providers sits with what runs on this computer", async () => {
+    catalog = [claude, hermes, opencode];
+    render(<ConnectPicker lang="tr" providers={[]} onDone={vi.fn()} onClose={vi.fn()} />);
+    const local = (await screen.findByText("Bu bilgisayarda çalışan")).closest("section")!;
+    expect(local.textContent).toContain("Hermes Agent");
+    expect(local.textContent).toContain("OpenCode");
+    const account = screen.getByText("Hesabınla bağlan").closest("section")!;
+    expect(account.textContent).toContain("Claude Code");
+    expect(account.textContent).not.toContain("Hermes Agent");
+    expect(account.textContent).not.toContain("OpenCode");
+  });
+
+  it("a free tool that is not installed says so, and is looked for after its install", async () => {
+    await open({ id: "opencode", name: "OpenCode", kind: "agent", blurb: "", free: true, install: "curl x | bash", installed: false });
+    expect((screen.getByRole("button", { name: "Bağla" }) as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+    catalog = [opencode];
+    render(<ConnectPicker lang="tr" providers={[]} onDone={vi.fn()} onClose={vi.fn()} />);
+    expect((await screen.findByRole("button", { name: /OpenCode/ })).textContent).toContain("ücretsiz · kurulmalı");
+  });
+
+  it("what cannot be limited offers no lesser access, and is not offered for an agent", async () => {
+    await open(kimi);
+    expect(screen.queryByRole("radio", { name: "Dosya düzenleme" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Bağla" }));
+    await waitFor(() => expect(calls).toContainEqual(["connect.add", { id: "kimi", access: "full" }]));
+    cleanup();
+    catalog = [kimi, claude];
+    render(<ConnectPicker lang="tr" providers={[]} forAgent onDone={vi.fn()} onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: /Claude Code/ });
+    expect(screen.queryByRole("button", { name: /Kimi Code/ })).toBeNull();
+  });
+});
+
 describe("signing in to an account system", () => {
   afterEach(() => { cleanup(); calls.length = 0; });
 

@@ -7,6 +7,18 @@ import type { AgentProfile } from "~/lib/types";
 import { MarkSvg } from "./AgentMark";
 import { Icon } from "./Icons";
 
+export function ColorPick({ color, onPick }: { color: string; onPick: (c: string) => void }) {
+  return (
+    <div className="agent-create-colors">
+      {MARK_COLORS.map((c) => (
+        <button key={c} type="button" aria-label={c} aria-pressed={color === c} className={color === c ? "on" : ""} onClick={() => onPick(c)}>
+          <span style={{ background: c }} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // AgentCreate is how an agent comes to be: a name, which says what it is
 // for, and a color. Everything else (prompt, model, permissions) has a working
 // default and is changed later in Settings → Agent.
@@ -52,13 +64,7 @@ export function AgentCreate({ lang, onClose, onCreated }: {
         <form className="agent-create-body" onSubmit={(e) => { e.preventDefault(); void create(); }}>
           <MarkSvg color={color} size={96} awake />
           <input autoFocus aria-label={t("ofName", lang)} value={name} placeholder={t("ofCreateNamePh", lang)} onChange={(e) => setName(e.target.value)} />
-          <div className="agent-create-colors">
-            {MARK_COLORS.map((c) => (
-              <button key={c} type="button" aria-label={c} aria-pressed={color === c} className={color === c ? "on" : ""} onClick={() => setColor(c)}>
-                <span style={{ background: c }} />
-              </button>
-            ))}
-          </div>
+          <ColorPick color={color} onPick={setColor} />
           {err && <p className="prov-err">{err}</p>}
           <footer className="agent-create-foot">
             <button type="button" className="ghost" onClick={onClose}>{t("cancel", lang)}</button>

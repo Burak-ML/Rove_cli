@@ -20,33 +20,23 @@ import { useDialog } from "~/hooks/useDialog";
 
 export type Section = "appearance" | "workspace" | "providers" | "goals" | "agents" | "roster" | "permissions" | "automation" | "memory" | "mcp" | "webhook" | "profiles" | "servers" | "usage";
 
-// The settings rail, in groups: what the app looks like and costs, the
-// models and agents it works with, where and how it works, and who and what
-// may reach it. A count shows how many of a thing are set up.
+// The settings rail. A count shows how many of a thing are set up.
 type Counts = Record<"providers" | "workspaces" | "goals" | "skills" | "sshHosts" | "mcpServers", readonly unknown[]>;
 type RailItem = { id: Section; icon: Parameters<typeof Icon>[0]["name"]; label: string; text?: string; count?: (c: Counts) => number };
-const RAIL: { label: string; items: RailItem[] }[] = [
-  { label: "setGroupGeneral", items: [
-    { id: "appearance", icon: "palette", label: "appearance" },
-    { id: "usage", icon: "chart", label: "usageTitle" },
-  ] },
-  { label: "setGroupAI", items: [
-    { id: "providers", icon: "key", label: "providers", count: (c) => c.providers.length },
-    { id: "profiles", icon: "users", label: "profiles" },
-    { id: "roster", icon: "agents", label: "roster" },
-    { id: "agents", icon: "skills", label: "skills", count: (c) => c.skills.length },
-    { id: "memory", icon: "database", label: "memory" },
-    { id: "mcp", icon: "plug", label: "mcp", text: "MCP", count: (c) => c.mcpServers.length },
-  ] },
-  { label: "setGroupWork", items: [
-    { id: "workspace", icon: "folder", label: "workspaces", count: (c) => c.workspaces.length },
-    { id: "goals", icon: "target", label: "goals", count: (c) => c.goals.length },
-    { id: "automation", icon: "lightning", label: "automation" },
-  ] },
-  { label: "setGroupAccess", items: [
-    { id: "permissions", icon: "shield", label: "permissions" },
-    { id: "servers", icon: "server", label: "servers", count: (c) => c.sshHosts.length },
-  ] },
+const RAIL: RailItem[] = [
+  { id: "appearance", icon: "palette", label: "appearance" },
+  { id: "usage", icon: "chart", label: "usageTitle" },
+  { id: "providers", icon: "key", label: "providers", count: (c) => c.providers.length },
+  { id: "profiles", icon: "robot", label: "profiles" },
+  { id: "roster", icon: "users", label: "roster" },
+  { id: "agents", icon: "skills", label: "skills", count: (c) => c.skills.length },
+  { id: "memory", icon: "database", label: "memory" },
+  { id: "mcp", icon: "plug", label: "mcp", text: "MCP", count: (c) => c.mcpServers.length },
+  { id: "workspace", icon: "folder", label: "workspaces", count: (c) => c.workspaces.length },
+  { id: "goals", icon: "target", label: "goals", count: (c) => c.goals.length },
+  { id: "automation", icon: "lightning", label: "automation" },
+  { id: "permissions", icon: "shield", label: "permissions" },
+  { id: "servers", icon: "server", label: "servers", count: (c) => c.sshHosts.length },
 ];
 
 interface Props {
@@ -245,26 +235,21 @@ export function Settings({ onClose, onSelectWorkspace, onOpenShell, initialSecti
               <h1>{t("settings", lang)}</h1>
             </div>
             <nav className="settings-nav" aria-label={t("settings", lang)}>
-              {RAIL.map((g) => (
-                <div className="settings-group" key={g.label}>
-                  <div className="settings-group-label">{t(g.label, lang)}</div>
-                  {g.items.map((it) => {
-                    const n = it.count?.({ providers, workspaces, goals, skills, sshHosts, mcpServers }) ?? 0;
-                    return (
-                      <button
-                        key={it.id}
-                        type="button"
-                        className={`rail-item${section === it.id ? " active" : ""}`}
-                        aria-current={section === it.id ? "page" : undefined}
-                        onClick={() => setSection(it.id)}
-                      >
-                        <Icon name={it.icon} size={15} /> {it.text ?? t(it.label, lang)}
-                        {n > 0 && <span className="count">{n}</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+              {RAIL.map((it) => {
+                const n = it.count?.({ providers, workspaces, goals, skills, sshHosts, mcpServers }) ?? 0;
+                return (
+                  <button
+                    key={it.id}
+                    type="button"
+                    className={`rail-item${section === it.id ? " active" : ""}`}
+                    aria-current={section === it.id ? "page" : undefined}
+                    onClick={() => setSection(it.id)}
+                  >
+                    <Icon name={it.icon} size={17} /> {it.text ?? t(it.label, lang)}
+                    {n > 0 && <span className="count">{n}</span>}
+                  </button>
+                );
+              })}
             </nav>
           </aside>
 

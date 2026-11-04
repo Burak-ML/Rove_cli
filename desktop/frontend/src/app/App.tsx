@@ -17,7 +17,7 @@ const Settings = lazy(() => import("./Settings").then((m) => ({ default: m.Setti
 const SkillMarket = lazy(() => import("./SkillMarket").then((m) => ({ default: m.SkillMarket })));
 import { Toasts } from "./Toasts";
 import { CommandPalette, type PaletteAction } from "./CommandPalette";
-import { useWorkspaces } from "~/hooks/useApi";
+import { useProfiles, useWorkspaces } from "~/hooks/useApi";
 import { usePersonaBadges } from "~/hooks/usePersona";
 import { usePrefs } from "~/hooks/usePrefs";
 import { DEFAULT_THEME, applyTheme, isLightTheme, type ThemeId } from "~/lib/themes";
@@ -35,6 +35,7 @@ import { ConnectionBanner, ConnectionMenu } from "./ConnectionMenu";
 import { FolderBrowserHost } from "./FolderBrowser";
 import { ApiBanner } from "./ApiBanner";
 import { AgentCreate } from "./AgentCreate";
+import { AgentSetup } from "./AgentSetup";
 import type { OfficeIntent } from "./OfficePanel";
 import { UpdateBanner } from "./UpdateBanner";
 import { SIDE, columns, dragWidth, fitsSide, loadWidth, maxWidth } from "~/lib/layout";
@@ -126,7 +127,10 @@ export function App() {
     ? sessionMode(chat.session, modes)
     : chat.draft ? draftMode : null;
   // the sidebar belongs to Office and Chat; Automation and Market are full pages
-  const showSide = sideOpen && space !== null;
+  // with no agents yet the Agent space is the setup, without the side list
+  const { profiles, loaded: profilesLoaded } = useProfiles();
+  const settingUp = top === "office" && profilesLoaded && profiles.length === 0;
+  const showSide = sideOpen && space !== null && !settingUp;
   // too narrow for two columns: the list still opens, but over the page
   const sideOver = showSide && !fitsSide(winW);
   // Shrinking the window can push a saved width past its current ceiling
@@ -378,6 +382,7 @@ export function App() {
         window.dispatchEvent(new Event("rove:sessions"));
       }}
       space={sp}
+      offline={!rpcOk}
       mode={sp === "chat" ? "orchestra" : undefined}
       onOpenMap={() => openMap("context")}
       onOpenContext={() => openMap("sessions")}
@@ -388,6 +393,7 @@ export function App() {
   function renderCenter() {
     switch (top) {
       case "office": {
+        if (settingUp) return <div className="panel center-panel"><AgentSetup lang={lang} onDone={(p) => newDraft("office", p.id)} /></div>;
         const o = sel.office;
         // the side list opens the latest chat; this is for when there is none
         if (!o.session && !o.draft) {
@@ -484,7 +490,7 @@ export function App() {
             <img src={brandMark} alt="" />
             Rove
           </span>
-          <button type="button" className={`tb-icon${showSide ? "" : " off"}`} title={t("toggleSide", lang)} onClick={toggleSide} disabled={space === null}>
+          <button type="button" className={`tb-icon${showSide ? "" : " off"}`} title={t("toggleSide", lang)} onClick={toggleSide} disabled={space === null || settingUp}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16" /></svg>
           </button>
         </div>

@@ -100,7 +100,7 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     writeFileSync(join(home, "config.json"), JSON.stringify({ dataDir: home, listenHttp: `127.0.0.1:${PORT}`, listenIpc: join(home, "d.sock") }));
     // cwd is the throwaway dir: a chat without a folder works there, never in
     // this repo (/checkpoint and /goal run git in the workspace)
-    daemon = spawn(bin, ["daemon"], { cwd: home, env: { ...process.env, ROVECODE_HOME: home }, stdio: "ignore" });
+    daemon = spawn(bin, ["daemon"], { cwd: home, env: { ...process.env, ROVECODE_HOME: home, ROVECODE_FAKE: "1" }, stdio: "ignore" });
     for (let i = 0; i < 100; i++) {
       try {
         if ((await fetch(`${BASE}/health`)).ok) break;
@@ -135,20 +135,26 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
       fireEvent.click(within(await screen.findByRole("menu", { name: "Yeni oturum hangi modda?" })).getByText(mode).closest("button")!);
     };
 
-    // 1. three spaces; a first launch opens Office, waiting for an agent
-    await waitFor(() => expect(sidebar()?.textContent).toContain("bağlı"), { timeout: T });
+    // 1. three spaces; a first launch opens the Agent space on its setup
+    await waitFor(() => expect(document.querySelector(".agent-setup")).toBeTruthy(), { timeout: T });
     const tabs = within(document.querySelector(".tb-modes") as HTMLElement).getAllByRole("tab").map((b) => b.textContent);
     expect(tabs).toEqual(["Agent", "Code", "Otomasyon"]);
-    expect(sidebar().querySelector(".side-title")?.textContent).toBe("Ajanlar");
-    // with no agents the Agent space invites you to make one
-    await waitFor(() => expect(document.querySelector(".agent-home")?.textContent).toContain("Yeni ajan"), { timeout: T });
+    expect(sidebar()).toBeNull(); // the setup has the space to itself
     expect(document.querySelector(".shell-right")).toBeNull(); // no right panel at all
     expect(teamBar()).toBeNull(); // and no team in Office
     expect(await list("session.list")).toHaveLength(0);
 
     // 2. Office: agents are made in Settings → Office; only they are listed,
     //    and a row is the chat with that agent
-    expect(sidebar().textContent).toContain("Henüz ajan yok");
+    fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "Ana Ajan" } });
+    fireEvent.click(screen.getByRole("button", { name: "Devam" }));
+    fireEvent.click(screen.getByRole("button", { name: "#48b5f7" }));
+    fireEvent.click(screen.getByRole("button", { name: "Devam" }));
+    await screen.findByText("Bir sağlayıcı bağla", {}, { timeout: T });
+    fireEvent.click(screen.getByRole("button", { name: "Şimdilik geç" }));
+    await waitFor(() => expect(sidebar()?.querySelector(".agent-pin")?.textContent).toContain("Ana Ajan"), { timeout: T });
+    expect(sidebar().textContent).toContain("bağlı");
+    expect(sidebar().querySelector(".side-title")?.textContent).toBe("Ajanlar");
     expect(sidebar().querySelector(".agent-picker")).toBeNull();
     fireEvent.click(within(sidebar()).getByTitle("Ajan ekle"));
     const nameBox = await screen.findByLabelText("Ad", {}, { timeout: T });

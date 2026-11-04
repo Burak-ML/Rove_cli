@@ -101,7 +101,7 @@ export function OfficePanel({ intent }: { intent?: OfficeIntent }) {
                 <button type="button" className="office-row-main" onClick={() => setDraft({ ...p })}>
                   <strong>{p.name}</strong>
                   <span className="office-row-meta">
-                    <span>{p.title || t("ofOwnAgent", lang)}</span>
+                    <span>{p.title || t(p.isLeader ? "ofMain" : "ofOwnAgent", lang)}</span>
                     <span>·</span>
                     <span className="office-model">{p.model ? `${p.model}${p.provider ? ` · ${p.provider}` : ""}` : t("ofModelChat", lang)}</span>
                     <span>·</span>
@@ -170,7 +170,8 @@ function AgentEditor({ lang, draft: start, cat, onCancel, onSaved }: {
     return () => window.removeEventListener("keydown", k);
   }, [onCancel]);
 
-  const shown = useMemo(() => filterModels(models, mq), [models, mq]);
+  // what needs full access never runs for an agent
+  const shown = useMemo(() => filterModels(models.filter((m) => !m.fullOnly), mq), [models, mq]);
   const groups = useMemo(() => {
     const g = new Map<string, ModelChoice[]>();
     for (const m of shown) g.set(m.provider, [...(g.get(m.provider) ?? []), m]);

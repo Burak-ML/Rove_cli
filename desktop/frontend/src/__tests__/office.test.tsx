@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { defaultColor, markColor, MARK_COLORS } from "~/lib/agentmark";
-import type { AgentProfile } from "~/lib/types";
+import type { AgentProfile, Provider } from "~/lib/types";
 
 describe("agent marks", () => {
   it("rests with its eyes leaning; a working agent is marked so they stand up", () => {
@@ -45,11 +45,14 @@ describe("agent marks", () => {
 
 const calls: [string, unknown][] = [];
 let profiles: AgentProfile[] = [];
+let providers: Provider[] = [];
 vi.mock("../lib/rpc", () => ({
   rpc: vi.fn(async (method: string, params: unknown) => {
     calls.push([method, params]);
     switch (method) {
       case "profile.list": return profiles;
+      case "provider.list": return providers;
+      case "connect.catalog": return [{ id: "opencode", name: "OpenCode", kind: "agent", blurb: "", free: true, installed: true, loggedIn: true }];
       case "session.history": return [{ id: "m1", role: "user", content: "Ödeme hatası" }, { id: "m2", role: "assistant", content: "\n**Ödeme düzeldi**, test ettim.\nİkinci satır" }];
       case "profile.upsert": return { id: "new", ...(params as object) };
       case "model.list": return [{ provider: "Codex", model: "gpt-6-luna" }, { provider: "Kira", model: "claude-sonnet-5" }];
@@ -71,12 +74,76 @@ vi.mock("../lib/rpc", () => ({
 }));
 vi.mock("../hooks/usePrefs", () => ({ usePrefs: () => ({ lang: "tr", theme: "graphite" }) }));
 
+import { AgentSetup } from "../app/AgentSetup";
 import { OfficePanel } from "../app/OfficePanel";
 import { SessionSidebar } from "../app/SessionSidebar";
 import { MarkSvg } from "../app/AgentMark";
 import { subscribeEvents } from "../lib/rpc";
 
 const ayse: AgentProfile = { id: "p1", name: "Ayşe", role: "frontend", systemPrompt: "", model: "gpt-6-luna", provider: "Codex", isDefault: false, isLeader: false, characterId: "frontend", mark: "drop:dots", color: "#e5735f" };
+
+describe("first time in the Agent space", () => {
+  beforeEach(() => { calls.length = 0; profiles = []; providers = []; localStorage.removeItem("rove.agents.pinned"); sessionStorage.clear(); });
+  afterEach(cleanup);
+
+  const nameAndColor = () => {
+    fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "Kayra" } });
+    fireEvent.click(screen.getByRole("button", { name: "Devam" }));
+    expect(screen.getByText(/^Kayra böyle görünecek/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "#48b5f7" }));
+  };
+
+  it("asks for a name, a color and a provider, which can wait", async () => {
+    const done = vi.fn();
+    render(<AgentSetup lang="tr" onDone={done} />);
+    expect((screen.getByRole("button", { name: "Devam" }) as HTMLButtonElement).disabled).toBe(true);
+    nameAndColor();
+    fireEvent.click(screen.getByRole("button", { name: "Geri" }));
+    expect((screen.getByLabelText("Ad") as HTMLInputElement).value).toBe("Kayra");
+    fireEvent.click(screen.getByRole("button", { name: "Devam" }));
+    fireEvent.click(screen.getByRole("button", { name: "Devam" }));
+    await screen.findByText("Bir sağlayıcı bağla");
+    fireEvent.click(screen.getByRole("button", { name: "Şimdilik geç" }));
+    await waitFor(() => expect(done).toHaveBeenCalled());
+    const sent = calls.find(([m]) => m === "profile.upsert")![1] as AgentProfile;
+    expect(sent).toMatchObject({ name: "Kayra", color: "#48b5f7", isLeader: true });
+    // it starts pinned, like any agent the user pinned
+    expect(JSON.parse(localStorage.getItem("rove.agents.pinned")!)).toEqual(["new"]);
+  });
+
+  it("connecting a provider finishes the setup", async () => {
+    const done = vi.fn();
+    render(<AgentSetup lang="tr" onDone={done} />);
+    nameAndColor();
+    fireEvent.click(screen.getByRole("button", { name: "Devam" }));
+    fireEvent.click((await screen.findByText("OpenCode")).closest("button")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Bağla" }));
+    await waitFor(() => expect(done).toHaveBeenCalled());
+    const made = calls.map(([m]) => m);
+    expect(made.indexOf("connect.add")).toBeGreaterThanOrEqual(0);
+    expect(made.indexOf("connect.add")).toBeLessThan(made.indexOf("profile.upsert"));
+  });
+
+  it("what was entered is still there after coming back from another space", async () => {
+    const first = render(<AgentSetup lang="tr" onDone={vi.fn()} />);
+    nameAndColor();
+    first.unmount();
+    render(<AgentSetup lang="tr" onDone={vi.fn()} />);
+    expect(screen.getByText(/^Kayra böyle görünecek/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "#48b5f7" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("does not ask for a provider when one is connected", async () => {
+    providers = [{ id: "c", name: "Codex", kind: "agent-cli", baseUrl: "agent://codex?", models: [], default: true }];
+    const done = vi.fn();
+    render(<AgentSetup lang="tr" onDone={done} />);
+    fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "Kayra" } });
+    fireEvent.click(screen.getByRole("button", { name: "Devam" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Başlayalım" }));
+    await waitFor(() => expect(done).toHaveBeenCalled());
+    expect(screen.queryByText("Bir sağlayıcı bağla")).toBeNull();
+  });
+});
 
 describe("Settings → Office", () => {
   beforeEach(() => { calls.length = 0; profiles = []; localStorage.setItem("rove.office.v2", "1"); });

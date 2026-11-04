@@ -107,6 +107,8 @@ interface Props {
   // where this chat is: Agent ("office") chats talk to an agent with a role;
   // Code ("chat") sessions have none
   space?: "office" | "chat";
+  // the daemon cannot be reached
+  offline?: boolean;
   // a Code session's mode: /session offers only sessions of this mode
   mode?: ChatMode;
   // the agent (profile id) an open draft will talk to, named before its
@@ -115,7 +117,7 @@ interface Props {
 }
 
 
-export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, onOpenContext, variant = "agent", onFocusPane, workspacePath, draft, onCreateSession, onNewDraft, pane, team, dock, space: where, mode, draftAgent }: Props) {
+export function Chat({ offline, workspaceId, session, onSession, onActivity, onOpenMap, onOpenContext, variant = "agent", onFocusPane, workspacePath, draft, onCreateSession, onNewDraft, pane, team, dock, space: where, mode, draftAgent }: Props) {
   // commands that apply here: the terminal's, or the chat's
   const scope: SlashScope = pane ? "terminal" : "chat";
   const { lang } = usePrefs();
@@ -188,6 +190,8 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
   // every model the providers actually offer, so the button never names one
   // that is not there (an agent's stored default outlives its provider)
   const [modelCatalog, setModelCatalog] = useState<ModelChoice[] | null>(null);
+  // the last run ended in an error: the agent shows it until it runs again
+  const [runFailed, setRunFailed] = useState(false);
   const pendingModel = useRef<ModelChoice | null>(null);
   // the picker opened from the model button sits by it; the message being
   // typed is put aside while its box filters models, then given back
@@ -261,7 +265,7 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
   // its is running somewhere
   const busy = sending || Boolean(streaming) || liveBlocks.length > 0;
   const agentBadge = agentProfile
-    ? <AgentMark color={agentProfile.color} seed={agentProfile.id} size={18} status={busy ? "running" : null} />
+    ? <AgentMark color={agentProfile.color} seed={agentProfile.id} size={18} status={busy ? "running" : runFailed ? "error" : null} offline={offline} />
     : <Avatar name={agentName} size="xs" accent />;
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [streamChars, setStreamChars] = useState(0);
@@ -289,6 +293,7 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
     setLive([]);
     setStartedAt(null);
     setStreamChars(0);
+    setRunFailed(false);
     if (!activeSession) return;
     const sid = activeSession.id;
     streamFor.current = sid;
@@ -355,7 +360,11 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
       }
       // one full read when a run ends puts the chat in the daemon's final
       // order (a summary, a note it wrote)
-      if (ev.type === "run.done") reloadHistorySoon();
+      if (ev.type === "run.done") {
+        reloadHistorySoon();
+        setRunFailed(Boolean(p.error));
+      }
+      if (ev.type === "run.start") setRunFailed(false);
     });
     // events lost while the stream was down: read the chat again
     const offReconnect = onReconnect(reloadHistorySoon);
@@ -534,7 +543,10 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
   // the list leaves out what was switched off in the Models window, but never
   // the model in use; a search looks inside folded providers too
   const { prefs: modelPrefs, save: saveModelPrefs } = useModelPrefs();
-  const usable = (models ?? []).filter((m) => !modelPrefs.hidden.includes(modelKey(m)) || (m.model === chatModel?.model && (!chatModel.provider || m.provider === chatModel.provider)));
+  const here = (m: ModelChoice) => !(where === "office" && m.fullOnly); // full access never runs for an agent
+  // the list came back with nothing this chat can run on
+  const noProvider = modelCatalog !== null && !modelCatalog.some(here);
+  const usable = (models ?? []).filter(here).filter((m) => !modelPrefs.hidden.includes(modelKey(m)) || (m.model === chatModel?.model && (!chatModel.provider || m.provider === chatModel.provider)));
   const listed = filterModels(usable, modelSearch);
   const folded = (provider: string) => !modelSearch.trim() && modelPrefs.folded.includes(provider);
   const modelRows: ModelChoice[] = models
@@ -567,8 +579,8 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
     let live = true;
     const load = () => {
       rpc<ModelChoice[]>("model.list")
-        .then((list) => { if (live) setModelCatalog(list ?? []); })
-        .catch(() => { if (live) setModelCatalog([]); });
+        .then((list) => { if (live && list) setModelCatalog(list); })
+        .catch(() => { /* not known: nothing to say about it */ });
     };
     load();
     window.addEventListener("rove:providers", load);
@@ -1279,8 +1291,8 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
 
   const live = activeSession ? activity[activeSession.id] ?? "" : "";
   // while the agent answers, Enter queues the message instead
-  const canSend = Boolean((input.trim() || images.length > 0) && (activeSession || (draft && onCreateSession)));
-  const canType = Boolean(activeSession || (draft && onCreateSession));
+  const canSend = Boolean(!noProvider && (input.trim() || images.length > 0) && (activeSession || (draft && onCreateSession)));
+  const canType = Boolean(!noProvider && (activeSession || (draft && onCreateSession)));
   const empty = allMessages.length === 0;
 
   // Follow the scroll: the pinned line is the last prompt that has gone off
@@ -1825,6 +1837,12 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
         )}
         {team && <div className="persona-bar">{team}</div>}
 
+        {noProvider && (
+          <div className="no-provider">
+            <span><strong>{t("noProviderTitle", lang)}</strong>{t("noProviderHint", lang)}</span>
+            <button type="button" className="primary" onClick={() => window.dispatchEvent(new CustomEvent("rove:open-settings", { detail: "providers" }))}>{t("noProviderConnect", lang)}</button>
+          </div>
+        )}
         <form className="composer-root" data-slot="composer-root" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           {slashMenuEl}
           {attachOpen && (
@@ -1882,24 +1900,26 @@ export function Chat({ workspaceId, session, onSession, onActivity, onOpenMap, o
                 />
                 <div className="composer-controls">
                   {onAgent ? micEl : rulesEl}
-                  <div className="composer-profile">
-                    {/* the chat's model: shown here, changed here (like /models) */}
-                    <button
-                      type="button"
-                      ref={pillRef}
-                      className={`model-pill${models && modelsFromPill ? " open" : ""}`}
-                      aria-label={t("modelPick", lang)}
-                      aria-haspopup="listbox"
-                      aria-expanded={Boolean(models && modelsFromPill)}
-                      title={`${t("modelPick", lang)}${chatModel?.source === "chat" ? ` · ${t("modelThisChat", lang)}` : ""}`}
-                      onClick={() => { setAttachOpen(false); if (models) closeModels(); else void openModels(true); }}
-                    >
-                      <span className={`pip${activeAgent?.status === "running" || live ? " run" : activeAgent ? " on" : ""}`} />
-                      <span className="pill-label">{modelLabel}</span>
-                      {effort ? <span className="pill-sub pill-effort">· {t(`effort_${effort}`, lang)}</span> : modelProvider && <span className="pill-sub">· {modelProvider}</span>}
-                      <span className="profile-caret">⌄</span>
-                    </button>
-                  </div>
+                  {!noProvider && (
+                    <div className="composer-profile">
+                      {/* the chat's model: shown here, changed here (like /models) */}
+                      <button
+                        type="button"
+                        ref={pillRef}
+                        className={`model-pill${models && modelsFromPill ? " open" : ""}`}
+                        aria-label={t("modelPick", lang)}
+                        aria-haspopup="listbox"
+                        aria-expanded={Boolean(models && modelsFromPill)}
+                        title={`${t("modelPick", lang)}${chatModel?.source === "chat" ? ` · ${t("modelThisChat", lang)}` : ""}`}
+                        onClick={() => { setAttachOpen(false); if (models) closeModels(); else void openModels(true); }}
+                      >
+                        <span className={`pip${activeAgent?.status === "running" || live ? " run" : activeAgent ? " on" : ""}`} />
+                        <span className="pill-label">{modelLabel}</span>
+                        {effort ? <span className="pill-sub pill-effort">· {t(`effort_${effort}`, lang)}</span> : modelProvider && <span className="pill-sub">· {modelProvider}</span>}
+                        <span className="profile-caret">⌄</span>
+                      </button>
+                    </div>
+                  )}
                   {sending ? (
                     <button type="button" className="send-btn" onClick={() => void stop()} aria-label={t("stop", lang)}>■</button>
                   ) : (

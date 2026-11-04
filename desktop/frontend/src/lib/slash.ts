@@ -90,7 +90,7 @@ export function lastUserKeep(messages: { role: string }[]): number {
   return last < 0 ? messages.length : last;
 }
 
-export type ModelChoice = { provider: string; model: string; default?: boolean };
+export type ModelChoice = { provider: string; model: string; default?: boolean; fullOnly?: boolean };
 
 // filterModels keeps the models whose "provider/model" contains the query.
 export function filterModels(list: ModelChoice[], query: string): ModelChoice[] {
