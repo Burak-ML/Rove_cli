@@ -36,7 +36,7 @@ func TestCatalog(t *testing.T) {
 			t.Errorf("%s: kind %q", s.ID, s.Kind)
 		}
 	}
-	for _, id := range []string{"claude-code", "codex", "antigravity", "hermes", "openclaw"} {
+	for _, id := range []string{"claude-code", "codex", "antigravity", "kimi", "grok", "hermes", "openclaw"} {
 		if !seen[id] {
 			t.Errorf("missing %s", id)
 		}
@@ -52,7 +52,7 @@ func TestOpenTerminalRefuses(t *testing.T) {
 	if err := OpenTerminal("openai", StepLogin); err == nil {
 		t.Fatal("an API entry has no terminal step")
 	}
-	if err := OpenTerminal("hermes", StepInstall); err == nil {
+	if err := OpenTerminal("hermes", StepToken); err == nil {
 		t.Fatal("a step the catalog does not give must be refused")
 	}
 }

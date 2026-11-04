@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 
+	"github.com/Burak-ML/rove/internal/connect"
 	"github.com/Burak-ML/rove/internal/core"
 	"github.com/Burak-ML/rove/internal/persona"
+	"github.com/Burak-ML/rove/internal/provider"
 	"github.com/Burak-ML/rove/internal/store"
 	"github.com/Burak-ML/rove/internal/types"
 	"github.com/Burak-ML/rove/pkg/protocol"
@@ -19,6 +22,8 @@ type modelChoice struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
 	Default  bool   `json:"default,omitempty"` // the default provider's
+	// FullOnly runs only with full access, which an agent never has
+	FullOnly bool `json:"fullOnly,omitempty"`
 }
 
 // sessionModel is the model a chat runs on, and where that comes from:
@@ -49,9 +54,10 @@ func (s *Server) handleModels(ctx context.Context, req protocol.Request) (json.R
 		if err != nil {
 			return nil, err
 		}
-		// the offline stand-in answers nothing real: it is only offered
-		// until something real is connected
-		real := slices.ContainsFunc(provs, func(pr types.Provider) bool {
+		// the offline stand-in answers nothing real, so it is not offered: with
+		// nothing connected the list is empty and the app asks for a provider.
+		// ROVECODE_FAKE keeps it until something real is connected, for tests.
+		real := os.Getenv("ROVECODE_FAKE") == "" || slices.ContainsFunc(provs, func(pr types.Provider) bool {
 			return types.NormalizeProviderKind(pr.Kind) != types.ProviderFake && len(pr.Models) > 0
 		})
 		out := []modelChoice{}
@@ -60,13 +66,18 @@ func (s *Server) handleModels(ctx context.Context, req protocol.Request) (json.R
 			if real && types.NormalizeProviderKind(pr.Kind) == types.ProviderFake {
 				continue
 			}
+			fullOnly := false
+			if id, _, ok := provider.ParseAgentURL(pr.BaseURL); ok {
+				sys, _ := connect.Find(id)
+				fullOnly = sys.FullOnly
+			}
 			for _, m := range pr.Models {
 				key := pr.Name + "\x00" + m
 				if m == "" || seen[key] {
 					continue
 				}
 				seen[key] = true
-				out = append(out, modelChoice{Provider: pr.Name, Model: m, Default: pr.Default})
+				out = append(out, modelChoice{Provider: pr.Name, Model: m, Default: pr.Default, FullOnly: fullOnly})
 			}
 		}
 		return core.MustJSON(out), nil

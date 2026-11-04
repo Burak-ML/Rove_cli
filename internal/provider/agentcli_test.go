@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -87,6 +88,125 @@ func TestReadOpenCode(t *testing.T) {
 	_, _, fail = readOpenCode(strings.NewReader(`{"type":"error","sessionID":"s","error":{"type":"provider.no-route","message":"Model unavailable: x/y"}}`), func(string) {})
 	if fail != "Model unavailable: x/y" {
 		t.Fatalf("fail = %q", fail)
+	}
+}
+
+func TestReadKimi(t *testing.T) {
+	stream := `{"role":"meta","type":"system.version","version":"2.3"}
+{"role":"assistant","content":"Bakıyorum.","tool_calls":[{"id":"1"}]}
+{"role":"tool","tool_call_id":"1","content":"a.txt"}
+{"role":"assistant","content":[{"type":"think","text":"gizli"},{"type":"text","text":"Bitti."}]}
+{"role":"meta","type":"session.resume_hint","session_id":"session_1"}
+`
+	var got strings.Builder
+	sid := readKimi(strings.NewReader(stream), func(s string) { got.WriteString(s) })
+	if got.String() != "Bakıyorum.\n\nBitti." || sid != "session_1" {
+		t.Fatalf("text %q session %q", got.String(), sid)
+	}
+}
+
+// Kimi Code cannot be narrowed from its command line: anything less than an
+// agent that may do everything never starts it.
+func TestAgentCLIKimiRunsOnlyWithFullAccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script stand-in")
+	}
+	dir := t.TempDir()
+	ran := filepath.Join(dir, "ran")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + ran + "\"\n" + `echo '{"role":"assistant","content":"ok"}'` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "kimi"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	all := []ToolSpec{{Name: "read_file"}, {Name: "write_file"}, {Name: "shell"}}
+	run := func(access string, tools []ToolSpec, ask bool) (string, error) {
+		a := &AgentCLI{System: SysKimi, Access: access}
+		ch, err := a.Complete(context.Background(), ChatRequest{Workdir: t.TempDir(), Tools: tools, Ask: ask, Messages: []ChatMessage{{Role: "user", Content: "hi"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var text string
+		var failed error
+		for d := range ch {
+			text += d.Content
+			if d.Err != nil {
+				failed = d.Err
+			}
+		}
+		return text, failed
+	}
+	for name, c := range map[string]struct {
+		access string
+		tools  []ToolSpec
+		ask    bool
+	}{
+		"edits access": {"edits", all, false},
+		"an agent":     {"full", []ToolSpec{{Name: "read_file"}}, false},
+		"a question":   {"full", all, true},
+	} {
+		text, failed := run(c.access, c.tools, c.ask)
+		var refusal *AgentFailure
+		if !errors.As(failed, &refusal) || !strings.Contains(text, "Kimi Code cannot be limited") {
+			t.Fatalf("%s: text %q err %v", name, text, failed)
+		}
+		if _, err := os.Stat(ran); err == nil {
+			t.Fatalf("%s: the program ran", name)
+		}
+	}
+	if text, failed := run("full", all, false); text != "ok" || failed != nil {
+		t.Fatalf("full access: text %q err %v", text, failed)
+	}
+	b, _ := os.ReadFile(ran)
+	if !strings.Contains(string(b), "stream-json") {
+		t.Fatalf("args: %s", b)
+	}
+}
+
+// Grok Build gets the agent's permissions as rules, which hold in every mode.
+func TestAgentCLIGrokPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script stand-in")
+	}
+	dir := t.TempDir()
+	log := filepath.Join(dir, "args")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + log + "\"\n" + `echo '{"type":"result","is_error":false,"result":"ok","session_id":"s1"}'` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "grok"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	sessions := NewAgentSessions(filepath.Join(dir, "sessions.json"))
+	run := func(access string, tools []ToolSpec) string {
+		a := &AgentCLI{System: SysGrok, Access: access, Sessions: sessions}
+		ch, err := a.Complete(context.Background(), ChatRequest{Workdir: t.TempDir(), CacheKey: "chat", Tools: tools, Messages: []ChatMessage{{Role: "user", Content: "hi"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := ""
+		for d := range ch {
+			text += d.Content
+		}
+		if text != "ok" {
+			t.Fatalf("text %q", text)
+		}
+		b, _ := os.ReadFile(log)
+		return strings.ReplaceAll(string(b), "\n", " ")
+	}
+	got := run("full", []ToolSpec{{Name: "read_file"}})
+	for _, want := range []string{"--permission-mode dontAsk", "--deny Edit", "--deny Write", "--deny Bash", "--deny MCPTool(*)", "--disallowed-tools Agent"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("read-only agent: no %q in %s", want, got)
+		}
+	}
+	if strings.Contains(got, "--always-approve") {
+		t.Fatalf("read-only agent is approved: %s", got)
+	}
+	got = run("edits", []ToolSpec{{Name: "read_file"}, {Name: "write_file"}})
+	if !strings.Contains(got, "--permission-mode acceptEdits") || !strings.Contains(got, "--deny Bash") || strings.Contains(got, "--deny Edit") || !strings.Contains(got, "-r s1") {
+		t.Fatalf("edits: %s", got)
+	}
+	got = run("full", []ToolSpec{{Name: "read_file"}, {Name: "write_file"}, {Name: "shell"}})
+	if !strings.Contains(got, "--always-approve") || strings.Contains(got, "--deny") {
+		t.Fatalf("full: %s", got)
 	}
 }
 

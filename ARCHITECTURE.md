@@ -212,7 +212,7 @@ All acceptance criteria met. Final gate run (2026-09-14):
 
 **Connected accounts.** `internal/connect` is the catalog a user adds providers from
 (Settings → Providers → Add): agent systems on this computer signed in with the user's own
-account (Claude Code, Codex, Antigravity, Hermes, OpenCode), model APIs that take a key (OpenAI,
+account (Claude Code, Codex, Antigravity, Kimi Code, Grok Build, Hermes, OpenCode), model APIs that take a key (OpenAI,
 Anthropic, Gemini, OpenRouter, …) and local servers (OpenClaw's gateway, Ollama). It finds
 what is installed and signed in, and opens the system terminal for an install or a
 sign-in — only the catalog's fixed commands, picked by ID. Claude Code also takes a setup

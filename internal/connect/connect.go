@@ -64,6 +64,11 @@ type System struct {
 	Models []string `json:"models,omitempty"`
 	// Free works with no account at all; signing in only adds more models.
 	Free bool `json:"free,omitempty"`
+	// OnDevice lists an agent system among what runs on this computer: it
+	// brings its own providers instead of signing in to one account.
+	OnDevice bool `json:"onDevice,omitempty"`
+	// FullOnly cannot run with less than full access.
+	FullOnly bool `json:"fullOnly,omitempty"`
 }
 
 // Catalog lists what can be connected.
@@ -81,10 +86,19 @@ var Catalog = []System{
 		Blurb:   "Google hesabınla Antigravity CLI; Gemini ve hesabındaki diğer modellerle sohbetin klasöründe çalışır.",
 		Install: "curl -fsSL https://antigravity.google/cli/install.sh | bash", Login: "agy",
 		Docs: "https://antigravity.google/docs/cli/best-practices/", Models: []string{"default"}},
-	{ID: provider.SysHermes, Name: "Hermes Agent", Kind: KindAgent, Bin: "hermes",
-		Blurb: "Nous Research'ün Hermes ajanı, kendi kurduğun sağlayıcı ve hesaplarla.",
-		Login: "hermes model", Docs: "https://github.com/NousResearch/hermes-agent", Models: []string{"default"}},
-	{ID: provider.SysOpenCode, Name: "OpenCode", Kind: KindAgent, Bin: "opencode", Free: true,
+	{ID: provider.SysKimi, Name: "Kimi Code", Kind: KindAgent, Bin: "kimi", FullOnly: true,
+		Blurb:   "Kimi üyeliğinle (Plus ve üstü); Kimi Code sohbetin klasöründe onay sormadan çalışır.",
+		Install: "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash", Login: "kimi login",
+		Docs: "https://www.kimi.com/code/docs/en/kimi-code-cli/guides/getting-started.html", Models: []string{"default"}},
+	{ID: provider.SysGrok, Name: "Grok Build", Kind: KindAgent, Bin: "grok",
+		Blurb:   "Grok hesabınla (SuperGrok ya da X Premium+); Grok Build sohbetin klasöründe çalışır.",
+		Install: "curl -fsSL https://x.ai/cli/install.sh | bash", Login: "grok login", Logout: "grok logout", BrowserLogin: true,
+		Docs: "https://docs.x.ai/build/overview", Models: []string{"default"}},
+	{ID: provider.SysHermes, Name: "Hermes Agent", Kind: KindAgent, Bin: "hermes", OnDevice: true,
+		Blurb:   "Nous Research'ün Hermes ajanı, kendi kurduğun sağlayıcı ve hesaplarla.",
+		Install: "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
+		Login:   "hermes model", Docs: "https://github.com/NousResearch/hermes-agent", Models: []string{"default"}},
+	{ID: provider.SysOpenCode, Name: "OpenCode", Kind: KindAgent, Bin: "opencode", Free: true, OnDevice: true,
 		Blurb:   "OpenCode'un ücretsiz modelleri hesap gerekmeden çalışır; istersen kendi sağlayıcılarını da ekleyebilirsin.",
 		Install: "curl -fsSL https://opencode.ai/install | bash", Login: "opencode auth login", Logout: "opencode auth logout",
 		Docs: "https://opencode.ai/docs", Models: []string{"default"}},
@@ -208,6 +222,19 @@ func signedIn(ctx context.Context, id, bin string, env []string) (*bool, string)
 		// it signs in by setting up a provider of its own
 		if p := hermesProvider(); p != "" {
 			return &yes, p
+		}
+		return &no, ""
+	case provider.SysKimi:
+		// its sign-in leaves one file a provider, and it has no status command
+		files, _ := filepath.Glob(filepath.Join(homeDir("KIMI_CODE_HOME", ".kimi-code"), "credentials", "*.json"))
+		if len(files) > 0 {
+			return &yes, ""
+		}
+		return &no, ""
+	case provider.SysGrok:
+		// no status command either: a saved sign-in, or a key it would use
+		if _, err := os.Stat(filepath.Join(homeDir("GROK_HOME", ".grok"), "auth.json")); err == nil || os.Getenv("XAI_API_KEY") != "" {
+			return &yes, ""
 		}
 		return &no, ""
 	case provider.SysOpenCode:
@@ -444,6 +471,8 @@ func AccountModels(id string) []string {
 		names = hermesModels()
 	case provider.SysOpenCode:
 		names = openCodeModels()
+	case provider.SysGrok:
+		names = grokModels()
 	}
 	if len(names) > 0 {
 		return append(out, names...)
@@ -564,6 +593,25 @@ func openCodeModels() []string {
 		}
 	}
 	return append(free, more...)
+}
+
+var grokModelRe = regexp.MustCompile(`\bgrok-[\w.-]*\w`)
+
+// grokModels asks Grok Build what the account can run.
+func grokModels() []string {
+	bin := provider.FindBin("grok")
+	if bin == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var out []string
+	for _, l := range strings.Split(run(ctx, nil, bin, "models"), "\n") {
+		if m := grokModelRe.FindString(l); m != "" && !slices.Contains(out, m) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // hermesProvider is the provider Hermes is set to use, if it has one yet.

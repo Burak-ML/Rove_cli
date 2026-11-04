@@ -88,7 +88,11 @@ func (s *Server) handleConnect(ctx context.Context, req protocol.Request) (json.
 				}
 			}
 		}
-		pv.BaseURL = provider.AgentURL(sys.ID, p.Access)
+		access := p.Access
+		if sys.FullOnly {
+			access = "full"
+		}
+		pv.BaseURL = provider.AgentURL(sys.ID, access)
 		pv.Models = nil
 		out, err := a.SaveProvider(ctx, pv)
 		return core.MustJSON(out), err

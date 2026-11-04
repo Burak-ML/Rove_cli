@@ -21,14 +21,14 @@ import (
 )
 
 // AgentCLI hands a chat's turn to an agent system installed on this computer
-// — Claude Code, Codex, Antigravity, Hermes, OpenCode — through its non-interactive
+// — Claude Code, Codex, Antigravity, Kimi Code, Grok Build, Hermes, OpenCode — through its non-interactive
 // mode, in the chat's folder, signed in with the user's own account. The
 // system brings its own tools and does the work itself; what comes back is
 // its text, streamed. A chat keeps one session with the system, so each turn
 // sends only the new message.
 type AgentCLI struct {
 	NameVal string
-	// System is the catalog id: claude-code, codex, antigravity, hermes, opencode.
+	// System is the catalog id: claude-code, codex, antigravity, kimi, grok, hermes, opencode.
 	System string
 	// Access is "edits" (change files, ask before anything else — which in a
 	// non-interactive run means no) or "full" (no approval prompts).
@@ -46,6 +46,8 @@ const (
 	SysAntigravity = "antigravity"
 	SysHermes      = "hermes"
 	SysOpenCode    = "opencode"
+	SysKimi        = "kimi"
+	SysGrok        = "grok"
 )
 
 // AgentBins maps a system to its program.
@@ -55,6 +57,8 @@ var AgentBins = map[string]string{
 	SysAntigravity: "agy",
 	SysHermes:      "hermes",
 	SysOpenCode:    "opencode",
+	SysKimi:        "kimi",
+	SysGrok:        "grok",
 }
 
 // AgentURL is how an agent-cli provider is stored: agent://<system>?access=…
@@ -97,7 +101,8 @@ func FindBin(name string) string {
 		filepath.Join(home, ".local", "bin"), filepath.Join(home, ".claude", "local"),
 		filepath.Join(home, ".npm-global", "bin"), filepath.Join(home, ".bun", "bin"),
 		filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "go", "bin"),
-		filepath.Join(home, ".opencode", "bin"), filepath.Join(home, ".volta", "bin"),
+		filepath.Join(home, ".opencode", "bin"), filepath.Join(home, ".grok", "bin"),
+		filepath.Join(home, ".kimi-code", "bin"), filepath.Join(home, ".volta", "bin"),
 		filepath.Join(home, ".local", "share", "pnpm"), filepath.Join(home, ".asdf", "shims"),
 		"/opt/homebrew/bin", "/usr/local/bin", "/usr/bin",
 	}
@@ -340,6 +345,50 @@ func (a *AgentCLI) Complete(ctx context.Context, req ChatRequest) (<-chan ChatDe
 			args = append(args, "--auto")
 		}
 		args = append(args, text)
+	case SysKimi:
+		// its print mode decides every tool call by itself and has no flag
+		// to narrow that: it runs only where the agent may do everything
+		if !full || !g.write || !g.shell {
+			return refused(a.System, "Kimi Code cannot be limited when it runs from Rove, so it only works with full access in a Code chat. Pick another model here."), nil
+		}
+		args = []string{"-p", text, "--output-format", "stream-json"}
+		if model != "" {
+			args = append(args, "-m", model)
+		}
+		if sid != "" {
+			args = append(args, "--session="+sid)
+		}
+	case SysGrok:
+		args = []string{"--no-auto-update", "-p", text, "--output-format", "streaming-messages-json", "--include-partial-messages", "--cwd", dir}
+		if model != "" {
+			args = append(args, "-m", model)
+		}
+		if sid != "" {
+			args = append(args, "-r", sid)
+		}
+		readOnly := req.Ask || !g.write
+		switch {
+		case readOnly:
+			// only what is pre-approved runs, and the rules below hold in every mode
+			args = append(args, "--permission-mode", "dontAsk", "--disallowed-tools", "Agent")
+		case full && g.shell:
+			args = append(args, "--always-approve")
+		default:
+			args = append(args, "--permission-mode", "acceptEdits")
+		}
+		var deny []string
+		if readOnly {
+			deny = append(deny, "Edit", "Write", "MCPTool(*)")
+		}
+		if readOnly || !g.shell {
+			deny = append(deny, "Bash")
+		}
+		if !g.read && !req.Ask {
+			deny = append(deny, "Read", "Grep")
+		}
+		for _, d := range deny {
+			args = append(args, "--deny", d)
+		}
 	case SysHermes:
 		args = []string{"-z", text, "--in", dir}
 		if model != "" {
@@ -383,8 +432,11 @@ func (a *AgentCLI) Complete(ctx context.Context, req ChatRequest) (<-chan ChatDe
 			}
 		}
 		switch a.System {
-		case SysClaudeCode:
+		case SysClaudeCode, SysGrok:
+			// Grok's messages stream is the same as Claude Code's
 			newSID, usage, failure = readClaude(stdout, emit)
+		case SysKimi:
+			newSID = readKimi(stdout, emit)
 		case SysCodex:
 			newSID, usage, failure = readCodex(stdout, emit)
 		case SysOpenCode:
@@ -573,6 +625,73 @@ func readOpenCode(r io.Reader, emit func(string)) (sid string, usage *Usage, fai
 		}
 	}
 	return sid, usage, failure
+}
+
+// readKimi follows Kimi Code's stream-json: one chat message a line, its text
+// as a string or as parts, and the session to resume in the line that ends
+// the turn.
+func readKimi(r io.Reader, emit func(string)) (sid string) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	wrote := false
+	for sc.Scan() {
+		var ev struct {
+			Role      string          `json:"role"`
+			SessionID string          `json:"session_id"`
+			Content   json.RawMessage `json:"content"`
+		}
+		if json.Unmarshal(sc.Bytes(), &ev) != nil {
+			continue
+		}
+		if ev.SessionID != "" {
+			sid = ev.SessionID
+		}
+		if ev.Role != "assistant" {
+			continue
+		}
+		text := kimiText(ev.Content)
+		if text == "" {
+			continue
+		}
+		if wrote {
+			emit("\n\n")
+		}
+		emit(text)
+		wrote = true
+	}
+	return sid
+}
+
+func kimiText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		if p.Type == "text" {
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
+}
+
+// refused ends a turn before the program starts, the way a failed run ends:
+// the reason in the chat, and no asking again.
+func refused(system, reason string) <-chan ChatDelta {
+	bin := AgentBins[system]
+	out := make(chan ChatDelta, 2)
+	out <- ChatDelta{Content: "\n\n⚠ " + bin + ": " + reason, Err: &AgentFailure{System: bin, Reason: reason}}
+	out <- ChatDelta{Done: true}
+	close(out)
+	return out
 }
 
 // readText passes plain output through as it comes.

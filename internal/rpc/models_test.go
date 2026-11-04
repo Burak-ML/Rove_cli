@@ -42,6 +42,7 @@ func (r *modelRecorder) last() string {
 }
 
 func TestModelsCommandPicksAChatsModel(t *testing.T) {
+	t.Setenv("ROVECODE_FAKE", "1")
 	app, err := core.Open(config.Config{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -161,11 +162,21 @@ func TestModelListHidesFakeOnceRealIsConnected(t *testing.T) {
 		return out
 	}
 	_ = app.Store.UpsertProvider(ctx, types.Provider{ID: "f", Name: "fake", Kind: types.ProviderFake, Models: []string{"fake"}})
+	if got := list(); len(got) != 0 {
+		t.Fatalf("the stand-in is not offered: %+v", got)
+	}
+	t.Setenv("ROVECODE_FAKE", "1")
 	if got := list(); len(got) != 1 || got[0].Provider != "fake" {
-		t.Fatalf("alone, the stand-in stays: %+v", got)
+		t.Fatalf("for tests, alone, the stand-in stays: %+v", got)
 	}
 	_ = app.Store.UpsertProvider(ctx, types.Provider{ID: "r", Name: "real", Kind: types.ProviderOpenAICompat, Models: []string{"m"}})
 	if got := list(); len(got) != 1 || got[0].Provider != "real" {
 		t.Fatalf("with a real provider: %+v", got)
+	}
+	_ = app.Store.UpsertProvider(ctx, types.Provider{ID: "k", Name: "Kimi Code", Kind: types.ProviderAgentCLI, BaseURL: "agent://kimi?access=full", Models: []string{"default"}})
+	for _, m := range list() {
+		if m.FullOnly != (m.Provider == "Kimi Code") {
+			t.Fatalf("what needs full access is marked: %+v", m)
+		}
 	}
 }
