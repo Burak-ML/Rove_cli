@@ -558,7 +558,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (res RunResult, err 
 // turnRetries: a reply whose stream broke or stalled is asked for again this
 // many times before the run fails. The provider already retries a request
 // the server turned away; this covers one that started and then died, which
-// otherwise failed a whole subagent task or Teamwork phase over one dropped
+// otherwise failed a whole subagent task over one dropped
 // connection.
 const turnRetries = 2
 
@@ -582,7 +582,8 @@ func (rt *Runtime) turn(ctx context.Context, sessionID types.ID, completer provi
 		call := rt.meter("chat", sessionID, completer, model, chatReq)
 		text, calls, streamErr = rt.receive(sessionID, ch, call)
 		call.done()
-		if streamErr == nil || ctx.Err() != nil || attempt >= turnRetries {
+		var refused *provider.AgentFailure
+		if streamErr == nil || ctx.Err() != nil || attempt >= turnRetries || errors.As(streamErr, &refused) {
 			return text, calls, streamErr, nil
 		}
 		log.Printf("session %s: reply broke off (%v); asking again (%d/%d)", sessionID, streamErr, attempt+1, turnRetries)

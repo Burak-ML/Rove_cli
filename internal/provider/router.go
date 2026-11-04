@@ -56,6 +56,15 @@ type ChatRequest struct {
 	Ask bool `json:"ask,omitempty"`
 }
 
+// AgentFailure is an agent system saying it could not do the work: not
+// signed in, out of quota, a bad model. Asking again would only repeat it.
+type AgentFailure struct {
+	System string
+	Reason string
+}
+
+func (f *AgentFailure) Error() string { return f.System + ": " + f.Reason }
+
 type ChatDelta struct {
 	Content   string           `json:"content,omitempty"`
 	ToolCalls []types.ToolCall `json:"toolCalls,omitempty"`

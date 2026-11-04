@@ -68,26 +68,26 @@ func TestModeIsFixedOnceSet(t *testing.T) {
 	defer s.Close()
 	m := New(s, nil)
 	ctx := context.Background()
-	sess, err := m.CreateMode(ctx, types.SpaceChat, types.ModeTeamwork, "", "a1", "w1")
+	sess, err := m.CreateMode(ctx, types.SpaceChat, types.ModeOrchestra, "", "a1", "w1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, _ := m.Get(ctx, sess.ID)
-	if got.Mode != types.ModeTeamwork {
+	if got.Mode != types.ModeOrchestra {
 		t.Fatalf("mode %q", got.Mode)
 	}
 	// renaming (an upsert) keeps it
 	if err := m.Rename(ctx, sess.ID, "x"); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ = m.Get(ctx, sess.ID); got.Mode != types.ModeTeamwork {
+	if got, _ = m.Get(ctx, sess.ID); got.Mode != types.ModeOrchestra {
 		t.Fatalf("rename changed mode to %q", got.Mode)
 	}
 	// it cannot be changed, only repeated
 	if err := m.SetMode(ctx, sess.ID, types.ModeTerminal); !errors.Is(err, store.ErrModeFixed) {
 		t.Fatalf("change allowed: %v", err)
 	}
-	if err := m.SetMode(ctx, sess.ID, types.ModeTeamwork); err != nil {
+	if err := m.SetMode(ctx, sess.ID, types.ModeOrchestra); err != nil {
 		t.Fatal(err)
 	}
 	// an old session without a mode gets one, once

@@ -5,9 +5,8 @@ import type { Workspace } from "~/lib/types";
 import { Icon } from "./Icons";
 
 // The icon each mode goes by, wherever a mode is named.
-export const MODE_ICON: Record<ChatMode, "orchestra" | "teamwork" | "terminal"> = {
+export const MODE_ICON: Record<ChatMode, "orchestra" | "terminal"> = {
   orchestra: "orchestra",
-  teamwork: "teamwork",
   terminal: "terminal",
 };
 

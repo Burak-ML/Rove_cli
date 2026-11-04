@@ -44,7 +44,6 @@ import (
 	"github.com/Burak-ML/rove/internal/ssh"
 	"github.com/Burak-ML/rove/internal/store"
 	"github.com/Burak-ML/rove/internal/team"
-	"github.com/Burak-ML/rove/internal/teamwork"
 	"github.com/Burak-ML/rove/internal/terminal"
 	"github.com/Burak-ML/rove/internal/tool"
 	"github.com/Burak-ML/rove/internal/types"
@@ -74,7 +73,6 @@ type App struct {
 	Team          *team.Team
 	// Subagents runs and tracks the work a chat hands to subagents.
 	Subagents *team.Subagents
-	Work      *teamwork.Engine
 	// Staff runs the Agent space's team: tasks, reports, notes, colleagues.
 	// Panes runs a session's terminals as one team (terminal mode).
 	Panes   *panes.Hub
@@ -290,39 +288,7 @@ func Open(cfg config.Config) (*App, error) {
 		}
 		return ""
 	}
-	work := teamwork.New(st, sess, bus)
-	work.Ask = agents.AskModel
-	work.ChatModel = func(ctx context.Context, sessionID types.ID) types.ModelRef {
-		m, _ := st.GetSessionModel(ctx, sessionID)
-		return m
-	}
-	work.Run = agents.Run
-	work.Cat = catalogOf{}
-	work.Characters = func() []teamwork.CharacterLine {
-		out := make([]teamwork.CharacterLine, 0, len(persona.Characters))
-		for _, c := range persona.Characters {
-			// the planner reads English: plain and cheap for any model
-			name, sum := c.Name, c.Summary
-			if en, ok := c.I18n["en"]; ok {
-				name, sum = en.Name, en.Summary
-			}
-			out = append(out, teamwork.CharacterLine{ID: c.ID, Name: name, Summary: sum})
-		}
-		return out
-	}
-	work.Name = func(id string) string {
-		if c, ok := persona.CharacterByID(id); ok {
-			return c.Name
-		}
-		return id
-	}
 	hub.WorkspacePath = func(ctx context.Context, id types.ID) string {
-		if w, err := ws.Get(ctx, id); err == nil {
-			return w.Path
-		}
-		return ""
-	}
-	work.WorkspacePath = func(ctx context.Context, id types.ID) string {
 		if w, err := ws.Get(ctx, id); err == nil {
 			return w.Path
 		}
@@ -368,7 +334,7 @@ func Open(cfg config.Config) (*App, error) {
 
 	app := &App{
 		Cfg: cfg, Store: st, Bus: bus, Secrets: sec, Perm: perm, Tools: tools, Router: router,
-		Agents: agents, Sess: sess, Mem: mem, Judge: j, Goals: goals, Team: crew, Subagents: subs, Work: work, Panes: hub,
+		Agents: agents, Sess: sess, Mem: mem, Judge: j, Goals: goals, Team: crew, Subagents: subs, Panes: hub,
 		Approvals: gate,
 		Term:      term, SSH: sshMgr, Git: git, WS: ws, Skills: sk, Market: market, MCP: mcpRt,
 		Auto: auto, Webhook: wh, Token: token, Checkpt: checkpoint.New(), Index: idx, Map: cmap, Links: links,
@@ -928,14 +894,6 @@ func (a *App) FileTree(root string, max int) ([]string, error) {
 		return out, err
 	}
 	return out, nil
-}
-
-// catalogOf lets Teamwork check character ids against the persona catalog.
-type catalogOf struct{}
-
-func (catalogOf) Has(id string) bool {
-	_, ok := persona.CharacterByID(id)
-	return ok
 }
 
 // startMCP runs the MCP servers the user added, so their tools reach the

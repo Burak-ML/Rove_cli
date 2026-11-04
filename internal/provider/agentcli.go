@@ -404,7 +404,7 @@ func (a *AgentCLI) Complete(ctx context.Context, req ChatRequest) (<-chan ChatDe
 		}
 		if failure != "" {
 			// said in the chat: the run ends with the reason it failed
-			out <- ChatDelta{Content: "\n\n⚠ " + AgentBins[a.System] + ": " + failure}
+			out <- ChatDelta{Content: "\n\n⚠ " + AgentBins[a.System] + ": " + failure, Err: &AgentFailure{System: AgentBins[a.System], Reason: failure}}
 		}
 		out <- ChatDelta{Done: true, Usage: usage}
 	}()

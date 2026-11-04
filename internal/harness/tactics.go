@@ -38,8 +38,7 @@ const (
 	PlanExecute
 	// GoalLoop: loop until judge says DONE, ignoring agent completion claims.
 	GoalLoop
-	// Parallel and Delegated are retired: parallel agents are Teamwork's
-	// job. They stay so stored profiles still decode; nothing sets or reads
+	// Parallel and Delegated are retired. They stay so stored profiles still decode; nothing sets or reads
 	// them.
 	Parallel
 	Delegated

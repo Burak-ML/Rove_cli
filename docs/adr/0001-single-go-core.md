@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-CLI and Desktop must not fork the agent system. Long-running terminals, goals and Teamwork plans have to survive a crashed UI. Future remote workers should not force a rewrite.
+CLI and Desktop must not fork the agent system. Long-running terminals, goals and subagents have to survive a crashed UI. Future remote workers should not force a rewrite.
 
 ## Decision
 
@@ -22,5 +22,5 @@ CLI and Desktop must not fork the agent system. Long-running terminals, goals an
 ## Consequences
 
 - A UI crash cannot corrupt a running goal: goals in `running` are moved back to `pending` on daemon restart.
-- Adding a remote worker means implementing `Worker` and registering it on the pool; Goal and Teamwork engines stay put.
+- Adding a remote worker means implementing `Worker` and registering it on the pool; Goal engines stay put.
 - Desktop without WebKitGTK can still be used via the CLI and a browser pointed at `http://127.0.0.1:7420` (token required).

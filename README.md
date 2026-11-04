@@ -17,7 +17,7 @@ No account and no subscription: it runs on your computer, and you connect your o
 - **One daemon, several clients.** The Wails + React desktop app, the terminal UI and the CLI all talk to the same local process over JSON-RPC (HTTP and a Unix socket).
 - **Goal engine with a judge.** Goals persist in SQLite across restarts. After each agent iteration a judge runs deterministic quality gates (build, test, lint) and returns `DONE`, `CONTINUE` or `BLOCKED`.
 - **Subagents with isolated checkouts.** An agent can delegate tasks to subagents. When several tasks run in a git project, each gets its own worktree and returns its changes as a patch for you to apply or discard.
-- **Three working modes.** Orchestra (one conversation that delegates), Teamwork (one request planned into parts that run in parallel and are merged) and Terminal (coding-CLI panes that can see each other's work).
+- **Two working modes.** Orchestra (one conversation that delegates to subagents) and Terminal (side-by-side panes and real shells).
 - **Real terminals.** The daemon owns PTY processes, keeps a replay buffer and exposes SSH sessions and saved hosts through the same API.
 - **Secrets stay out of the database.** API keys live in the OS keychain (macOS Keychain, Linux Secret Service, Windows DPAPI). Provider configs store only a secret ID.
 - **MCP and skills.** Built-in tools are exposed as MCP tools, external MCP servers can be registered, and skills are installed from YAML manifests that declare their permissions.

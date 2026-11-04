@@ -3,7 +3,7 @@ import { t, getLang } from "./i18n";
 import { toast } from "./toast";
 
 // Desktop notifications for work that finishes while the user is elsewhere:
-// a goal, a Teamwork plan, a long reply. Only when the app is not in front.
+// a goal, a long reply. Only when the app is not in front.
 
 const KEY = "aether.notify";
 // a reply this long (ms) is worth a notification
@@ -73,12 +73,6 @@ export function watchFinishes(): () => void {
       if (!p.id || !["done", "blocked"].includes(p.status ?? "")) return;
       void rpc<{ title: string; lastVerdict?: { reason?: string } }>("goal.get", { id: p.id }).then((g) =>
         notify(t(p.status === "done" ? "notifyGoalDone" : "notifyGoalBlocked", getLang()), p.status === "done" ? g.title : `${g.title} — ${g.lastVerdict?.reason ?? ""}`)).catch(() => {});
-    }),
-    subscribeEvents("teamwork.updated", (ev) => {
-      const p = (ev.payload ?? {}) as { sessionId?: string; status?: string };
-      if (!p.sessionId || !["done", "failed"].includes(p.status ?? "")) return;
-      void titleOf(p.sessionId).then((title) =>
-        notify(t(p.status === "done" ? "notifyPlanDone" : "notifyPlanFailed", getLang()), title));
     }),
   ];
   return () => offs.forEach((f) => f());

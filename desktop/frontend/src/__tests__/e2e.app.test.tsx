@@ -213,11 +213,11 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     await send("Ürün sayfası tasarla");
     await waitFor(() => expect(rows()).toHaveLength(2), { timeout: T });
 
-    // 6. modes (Orchestra, Teamwork, Terminal — Chat is the space, not a mode):
+    // 6. modes (Orchestra, Terminal — Chat is the space, not a mode):
     // picked for a new session, and kept by it
     fireEvent.click(within(sidebar()).getByTitle("Yeni oturum"));
     const menuItems = within(await screen.findByRole("menu", { name: "Yeni oturum hangi modda?" })).getAllByRole("menuitem").map((b) => b.querySelector("strong")?.textContent);
-    expect(menuItems).toEqual(["Orkestra", "Teamwork", "Terminal"]);
+    expect(menuItems).toEqual(["Orkestra", "Terminal"]);
     fireEvent.click(within(sidebar()).getByTitle("Yeni oturum"));
     await newIn("Terminal");
     await waitFor(() => expect(document.querySelector(".deck")).toBeTruthy(), { timeout: T });
@@ -227,29 +227,6 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     await waitFor(() => expect(sidebar().querySelector(".sess-row.active")?.textContent).toContain("Ürün sayfası tasarla"), { timeout: T });
     await waitFor(() => expect(transcript()).toContain("Ürün sayfası tasarla"), { timeout: T });
     expect(document.querySelector(".deck")).toBeNull();
-
-    // 8. Teamwork
-    await newIn("Teamwork");
-    // Teamwork: give a job, see the plan as cards, nothing runs until approved
-    const ask = await screen.findByPlaceholderText(/Google ile oturum/);
-    fireEvent.change(ask, { target: { value: "README dosyası yaz" } });
-    fireEvent.click(screen.getByRole("button", { name: "Plan çıkar" }));
-    await waitFor(() => expect(document.querySelectorAll(".tw-card")).toHaveLength(1), { timeout: T });
-    // this daemon's model answers in prose: the job becomes one phase, and the note says why
-    expect(document.querySelector(".tw-thread")?.textContent).toMatch(/Planlayıcı geçerli bir plan veremedi/);
-    expect(document.querySelector(".tw-status")?.textContent).toBe("Onay bekliyor");
-    const teamChat = (await list<{ id: string; title: string }>("session.list"))[0];
-    const drafted = await rpc<{ id: string; status: string; phases: { agents: { channelId?: string }[] }[] }>("teamwork.get", { sessionId: teamChat.id });
-    expect(drafted.status).toBe("draft");
-    expect(drafted.phases[0].agents[0].channelId ?? "").toBe(""); // no channel, no run, before approval
-    fireEvent.click(screen.getByRole("button", { name: "Onayla ve başlat" }));
-    await waitFor(() => expect(document.querySelector(".tw-status")?.textContent).toBe("Bitti"), { timeout: T });
-    expect(document.querySelector(".tw-result")).toBeTruthy();
-    expect((await rpc<{ status: string }>("teamwork.get", { sessionId: teamChat.id })).status).toBe("done");
-    // the phase's channel is not a chat and not a team member
-    expect(rows()).toHaveLength(3);
-    fireEvent.click(rowTitled("Ürün sayfası tasarla")!.querySelector(".sess-main")!);
-    await waitFor(() => expect(transcript()).toContain("Ürün sayfası tasarla"), { timeout: T });
 
     // 9. open a folder (a git repo), then chat in it
     const folder = join(home, "benim-projem");
@@ -266,7 +243,7 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     fireEvent.click((await screen.findByText("Orkestra", { selector: ".mode-row strong" }, { timeout: T })).closest("button")!);
     await waitFor(() => expect(replies()).toBe(0), { timeout: T });
     await send("README dosyası ekle");
-    await waitFor(() => expect(rows()).toHaveLength(4), { timeout: T });
+    await waitFor(() => expect(rows()).toHaveLength(3), { timeout: T });
     await waitFor(() => expect(rows()[0].textContent).toContain(basename(folder)), { timeout: T });
     const sessions = await list<{ id: string; title: string; workspaceId: string; agentId: string }>("session.list");
     const ws = await list<{ id: string; path: string }>("workspace.list");

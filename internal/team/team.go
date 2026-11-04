@@ -3,7 +3,7 @@
 // channel (child session) of its own with a fresh context, and only its
 // short report comes back. Subagents are plain agents — no characters, no
 // standing members: a chat in Orchestra mode splits the work, it does not
-// keep a cast. (Characters play in Teamwork's orchestras.)
+// keep a cast.
 //
 // Token budget matters here: a subagent only ever sees the task it was
 // given, and the lead only gets each one's clipped report back — never a
@@ -26,8 +26,7 @@ type Team struct {
 func New(st *store.Store, sm *session.Manager) *Team { return &Team{st: st, sess: sm} }
 
 // Brief is what a chat's model is told about handing work to subagents.
-// Empty for a channel: a subagent works, it does not hand work on (a
-// Teamwork conductor's members are given their pieces by the engine).
+// Empty for a channel: a subagent works, it does not hand work on.
 func (t *Team) Brief(ctx context.Context, sessionID types.ID) string {
 	s, err := t.st.GetSession(ctx, sessionID)
 	if err != nil || s.ParentID != "" {

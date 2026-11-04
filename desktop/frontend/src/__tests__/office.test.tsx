@@ -238,9 +238,9 @@ describe("Office side list", () => {
     );
     fireEvent.click(screen.getByTitle("Yeni oturum"));
     const menu = await screen.findByRole("menu", { name: "Yeni oturum hangi modda?" });
-    expect(Array.from(menu.querySelectorAll("[role=menuitem] strong")).map((x) => x.textContent)).toEqual(["Orkestra", "Teamwork", "Terminal"]);
-    fireEvent.click(Array.from(menu.querySelectorAll("[role=menuitem]")).find((b) => b.textContent?.includes("Teamwork"))!);
-    expect(newChat).toHaveBeenCalledWith(null, "teamwork");
+    expect(Array.from(menu.querySelectorAll("[role=menuitem] strong")).map((x) => x.textContent)).toEqual(["Orkestra", "Terminal"]);
+    fireEvent.click(Array.from(menu.querySelectorAll("[role=menuitem]")).find((b) => b.textContent?.includes("Terminal"))!);
+    expect(newChat).toHaveBeenCalledWith(null, "terminal");
     expect(screen.queryByRole("menu", { name: "Yeni oturum hangi modda?" })).toBeNull();
   });
 });

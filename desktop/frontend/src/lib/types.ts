@@ -16,14 +16,14 @@ export type Session = {
   title: string;
   agentId: ID;
   workspaceId: ID;
-  // set on a channel: a subagent's, a terminal's, a Teamwork player's
+  // set on a channel: a subagent's, a terminal's
   parentId?: ID;
   // "office" or "chat"; empty on chats made before spaces existed. "worker"
   // is a one-off subagent's channel, opened from the subagent roster.
   space?: "office" | "chat" | "worker";
   // how a Chat-space session works, picked when it starts and fixed after;
   // empty on sessions made before modes were stored
-  mode?: "orchestra" | "teamwork" | "terminal" | "";
+  mode?: "orchestra" | "terminal" | "";
   createdAt?: string;
   updatedAt: string;
 };
@@ -315,39 +315,3 @@ export type MapNeighbors = {
 };
 
 export type MapHit = { file: string; lang: string; loc: number; score: number; why?: string[]; symbols?: string[] };
-
-// Teamwork: a planned, phased team effort in a chat (internal/teamwork).
-export type WorkStatus = "draft" | "pending" | "running" | "done" | "failed" | "canceled" | "interrupted";
-export type WorkAgent = { character: string; why?: string; channelId?: ID };
-export type WorkPhase = {
-  id: string;
-  title: string;
-  goal: string;
-  files: string[];
-  dependsOn?: string[];
-  agents: WorkAgent[];
-  wave: number;
-  merge?: boolean;
-  status?: WorkStatus;
-  report?: string;
-  error?: string;
-};
-export type WorkNote = { kind: string; phases?: string[]; detail?: string };
-export type WorkPlan = {
-  id: ID;
-  sessionId: ID;
-  prompt: string;
-  summary?: string;
-  contract?: string;
-  phases: WorkPhase[];
-  notes?: WorkNote[];
-  // the model that wrote the plan
-  planner?: { provider: string; model: string } | null;
-  status: WorkStatus;
-  error?: string;
-  // the finished work, checked by running it
-  verifying?: boolean;
-  verify?: { verified: boolean; checks?: string[]; problems?: string[]; rounds: number } | null;
-  createdAt: string;
-  updatedAt: string;
-};

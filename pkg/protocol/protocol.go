@@ -206,19 +206,6 @@ const (
 	MethodSubagentApply   = "subagent.apply"
 	MethodSubagentDiscard = "subagent.discard"
 
-	// Teamwork: a planned, phased team effort in a chat (see internal/teamwork).
-	MethodWorkPlan        = "teamwork.plan"
-	MethodWorkGet         = "teamwork.get"
-	MethodWorkRemovePhase = "teamwork.removePhase"
-	MethodWorkRemoveAgent = "teamwork.removeAgent"
-	MethodWorkApprove     = "teamwork.approve"
-	MethodWorkCancel      = "teamwork.cancel"
-	MethodWorkDiscard     = "teamwork.discard"
-	MethodWorkRetry       = "teamwork.retry"
-
-	// Staff: the Agent space's team — who is working on what, tasks handed
-	// out with a report back, and each agent's notes (see internal/staff).
-	// watches: an agent watching a chat on the Session Map
 	// schedules: an agent given a task on a timer
 	// a task's changes, kept in its own checkout: see, apply, throw away,
 	// or open as a pull request

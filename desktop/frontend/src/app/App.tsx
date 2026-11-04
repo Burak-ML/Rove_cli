@@ -15,7 +15,6 @@ import type { AutoTab } from "./AutomationPage";
 const AutomationPage = lazy(() => import("./AutomationPage").then((m) => ({ default: m.AutomationPage })));
 const Settings = lazy(() => import("./Settings").then((m) => ({ default: m.Settings })));
 const SkillMarket = lazy(() => import("./SkillMarket").then((m) => ({ default: m.SkillMarket })));
-const TeamworkView = lazy(() => import("./TeamworkView").then((m) => ({ default: m.TeamworkView })));
 import { Toasts } from "./Toasts";
 import { CommandPalette, type PaletteAction } from "./CommandPalette";
 import { useWorkspaces } from "~/hooks/useApi";
@@ -42,7 +41,7 @@ import { SIDE, columns, dragWidth, fitsSide, loadWidth, maxWidth } from "~/lib/l
 import { pollWhileVisible } from "~/lib/poll";
 
 // The app is three spaces, one page each: Office (pick an agent, talk to
-// it), Chat (session work; each chat has a mode: orchestra, teamwork or
+// it), Chat (session work; each chat has a mode: orchestra or
 // terminal) and Automation (Context Map and Session Map).
 // Market is a page reached from the sidebar.
 const TOP_KEYS: Record<Exclude<Top, "market">, string> = { office: "spaceOffice", chat: "spaceChat", automation: "spaceAutomation" };
@@ -456,19 +455,6 @@ export function App() {
             onConsumedShell={() => setPendingShell(null)}
             themeKey={theme}
           />
-        );
-      case "teamwork":
-        return (
-          <div className="panel center-panel flush">
-            <Suspense fallback={null}>
-              <TeamworkView
-                session={chat.session}
-                draft={chat.draft && !chat.session}
-                onCreateSession={() => createFromDraft("chat")}
-                workspace={workspace}
-              />
-            </Suspense>
-          </div>
         );
       default: // orchestra: the conversation; a subagent's channel opens over it
         return (

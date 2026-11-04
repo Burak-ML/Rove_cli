@@ -40,16 +40,6 @@ describe("center panel children", () => {
   it("stretches content but not the bars above it", () => {
     expect(rule(".center-panel > *")).toMatch(/flex:\s*1/);
   });
-  it("Teamwork: orchestras scroll on the left, the conversation panel stands on the right", () => {
-    // the cable to the panel is drawn against the Teamwork page, not the window
-    expect(css).toMatch(/\.tw \{ position: relative; display: flex;/);
-    expect(css).toMatch(/\.tw-stage \{[^}]*overflow: auto;/);
-    expect(rule(".tw-panel")).toMatch(/flex: 0 0 clamp\(/);
-    // in the panel the request box is part of its column, not floating over it
-    expect(rule(".tw-panel .tw-dock")).toMatch(/position: relative;[^}]*transform: none;/);
-    // a narrow window stacks the panel under the orchestras
-    expect(css).toMatch(/@media \(max-width: 860px\) \{\s*\.tw \{ flex-direction: column;/);
-  });
 
   // One rhythm down the transcript: the parts of an answer sit close, and a
   // new question opens a gap, so a turn's end is plain without a divider.

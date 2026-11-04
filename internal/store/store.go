@@ -290,14 +290,6 @@ func (s *Store) migrate() error {
 		`ALTER TABLE sessions ADD COLUMN parent_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN space TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT ''`,
-		`CREATE TABLE IF NOT EXISTS teamwork_plans (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			body TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_teamwork_plans_session ON teamwork_plans(session_id, created_at)`,
 		`CREATE TABLE IF NOT EXISTS session_models (
 			session_id TEXT PRIMARY KEY,
 			provider TEXT NOT NULL DEFAULT '',
@@ -545,9 +537,6 @@ func (s *Store) DeleteSession(ctx context.Context, id types.ID) error {
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM session_effort WHERE session_id=?`, id)
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM terminal_layouts WHERE session_id=?`, id)
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM messages WHERE session_id=?`, id); err != nil {
-		return err
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM teamwork_plans WHERE session_id=?`, id); err != nil {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `DELETE FROM sessions WHERE id=?`, id)

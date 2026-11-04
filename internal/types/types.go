@@ -141,9 +141,9 @@ type Session struct {
 	// to an agent) or SpaceChat (session work). Empty on chats made before
 	// spaces existed; clients place those themselves.
 	Space string `json:"space,omitempty"`
-	// Mode is how a Chat-space session works (ModeOrchestra, ModeTeamwork,
+	// Mode is how a Chat-space session works (ModeOrchestra or
 	// ModeTerminal). It is picked when the session starts and then fixed:
-	// a conversation, a plan and a terminal deck keep different state, and
+	// a conversation and a terminal deck keep different state, and
 	// switching between them mid-session lost or mixed it. Empty on
 	// sessions made before modes were stored; those may set it once.
 	Mode      string    `json:"mode,omitempty"`
@@ -154,21 +154,17 @@ type Session struct {
 // Session modes (Session.Mode).
 const (
 	ModeOrchestra = "orchestra"
-	ModeTeamwork  = "teamwork"
 	ModeTerminal  = "terminal"
 )
 
 // ValidMode reports whether m is a session mode.
 func ValidMode(m string) bool {
-	return m == ModeOrchestra || m == ModeTeamwork || m == ModeTerminal
+	return m == ModeOrchestra || m == ModeTerminal
 }
 
 const (
 	SpaceOffice = "office"
 	SpaceChat   = "chat"
-	// SpaceTeamwork marks the channels a Teamwork plan opens for its agents
-	// (child sessions of the chat); they are not Orchestra team members.
-	SpaceTeamwork = "teamwork"
 	// SpaceTerminal marks a terminal of a multi-terminal session: a pane of
 	// the terminal mode, a child of the session it belongs to.
 	SpaceTerminal = "terminal"
@@ -180,10 +176,6 @@ const (
 	// ask about its context from the map. It is never a team member or pane
 	// and is shown only on the map.
 	SpaceMap = "map"
-	// SpaceOrchestra marks a member of one Teamwork part's orchestra: a
-	// child of the part's conductor channel (itself a SpaceTeamwork child of
-	// the chat). The conductor hands it work with team_delegate.
-	SpaceOrchestra = "orchestra"
 )
 
 // SessionLink connects two sessions so they can relay messages to each other.

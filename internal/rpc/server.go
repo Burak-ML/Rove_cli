@@ -364,7 +364,7 @@ func (s *Server) handle(ctx context.Context, req protocol.Request) (json.RawMess
 			CharacterID string `json:"characterId"`
 			// Space is types.SpaceOffice or types.SpaceChat.
 			Space string `json:"space"`
-			// Mode (Chat space): orchestra, teamwork or terminal; fixed.
+			// Mode (Chat space): orchestra or terminal; fixed.
 			Mode string `json:"mode"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
@@ -1365,9 +1365,6 @@ func (s *Server) handle(ctx context.Context, req protocol.Request) (json.RawMess
 		protocol.MethodSubagentApply, protocol.MethodSubagentDiscard:
 		return s.handleSubagents(ctx, req)
 
-	case protocol.MethodWorkPlan, protocol.MethodWorkGet, protocol.MethodWorkRemovePhase, protocol.MethodWorkRemoveAgent,
-		protocol.MethodWorkApprove, protocol.MethodWorkCancel, protocol.MethodWorkDiscard, protocol.MethodWorkRetry:
-		return s.handleTeamwork(ctx, req)
 	case protocol.MethodModelList, protocol.MethodSessionModel, protocol.MethodSessionSetModel:
 		return s.handleModels(ctx, req)
 

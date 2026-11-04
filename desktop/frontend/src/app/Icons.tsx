@@ -31,7 +31,6 @@ export function Icon({
     | "check"
     | "copy"
     | "modes"
-    | "teamwork"
     | "branch"
     | "merge"
     | "lock"
@@ -76,8 +75,6 @@ export function Icon({
       return <svg {...p}><circle cx="12" cy="12" r="2.6"/><circle cx="5" cy="6" r="1.8"/><circle cx="19" cy="6" r="1.8"/><circle cx="5" cy="18" r="1.8"/><circle cx="19" cy="18" r="1.8"/><path d="M6.5 7.2l3.4 3M17.5 7.2l-3.4 3M6.5 16.8l3.4-3M17.5 16.8l-3.4-3"/></svg>;
     case "modes":
       return <svg {...p}><rect x="4" y="4" width="7" height="7" rx="1.8"/><rect x="13" y="4" width="7" height="7" rx="1.8"/><rect x="4" y="13" width="7" height="7" rx="1.8"/><circle cx="16.5" cy="16.5" r="3.6"/></svg>;
-    case "teamwork":
-      return <svg {...p}><circle cx="12" cy="6" r="2.4"/><circle cx="6" cy="17" r="2.4"/><circle cx="18" cy="17" r="2.4"/><path d="M10.8 8.2 7.2 14.8M13.2 8.2l3.6 6.6M8.5 17h7"/></svg>;
     case "branch":
       return <svg {...p}><circle cx="6" cy="5.5" r="2"/><circle cx="6" cy="18.5" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7.5v9M18 10c0 4-6 3.5-11 7"/></svg>;
     case "merge":

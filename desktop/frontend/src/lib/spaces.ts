@@ -9,8 +9,8 @@ export const TOPS: Exclude<Top, "market">[] = ["office", "chat", "automation"];
 
 // A chat in the Chat space is shown in one of these modes; each chat keeps
 // its own. (Chat itself is the space, not a mode.)
-export type ChatMode = "orchestra" | "teamwork" | "terminal";
-export const CHAT_MODES: ChatMode[] = ["orchestra", "teamwork", "terminal"];
+export type ChatMode = "orchestra" | "terminal";
+export const CHAT_MODES: ChatMode[] = ["orchestra", "terminal"];
 // a chat that never had a mode starts in the one used last, else Orchestra
 const DEFAULT_MODE: ChatMode = "orchestra";
 

@@ -10,7 +10,7 @@ headless daemon share the same core.
 ┌──────────────────────────────────────────────────────────────┐
 │                        Desktop (Wails)                       │
 │              React + TypeScript presentation layer           │
-│  (Agent, Code, Teamwork, Terminal, Settings, Maps, SSE)      │
+│  (Agent, Code, Terminal, Settings, Maps, SSE)                │
 └──────────────────────────┬───────────────────────────────────┘
                            │ HTTP JSON-RPC + SSE
 ┌──────────────────────────▼───────────────────────────────────┐
@@ -22,7 +22,7 @@ headless daemon share the same core.
 │                       Go Core                                │
 │                                                              │
 │  Agent Runtime      Goal Engine       Judge Engine           │
-│  Subagents          Teamwork Engine   Skill Runtime          │
+│  Subagents                            Skill Runtime          │
 │  Skill Marketplace  Provider Router   Tool Runtime           │
 │  MCP Runtime        Terminal Engine   SSH Manager            │
 │  Git/Worktree Mgr   Workspace Mgr     Session Manager        │
@@ -56,15 +56,12 @@ after each agent iteration:
 - `CONTINUE` increments the iteration counter and loops back to the agent
 - Iteration > `MaxIterations` → `BLOCKED` (not ≥, so max=1 still allows one run)
 
-### 4. Three Ways to Work in Code
+### 4. Two Ways to Work in Code
 The app's spaces are **Agent** (internally `office`), **Code** (internally `chat`) and
-**Automation** (the maps). A session in Code runs in one of three modes, picked from the
+**Automation** (the maps). A session in Code runs in one of two modes, picked from the
 menu of its "+" when it is opened:
 - **Orchestra** — one conversation. When the work splits, the chat's model hands
   parts to plain subagents with `team_delegate` (no characters, no standing cast).
-- **Teamwork** — one request, planned into parts; each part is an orchestra of
-  catalog characters (a conductor and its members), wired by cables and merged at
-  the end (`internal/teamwork`).
 - **Terminal** — the same session as coding-CLI panes that see each other's work.
 
 ### 5. Subagents (Hermes-style delegation, Orca-style checkouts)
@@ -75,7 +72,7 @@ Any chat can hand work to subagents with the `team_delegate` tool
   (`types.SpaceWorker`). Subagents are plain agents: no character, no persona.
 - Each subagent starts with a fresh context holding only its task, runs with a
   budget of its own (`childTurns`), and only a clipped report returns to the lead.
-- Delegation is one level deep: channels (subagents, terminals, Teamwork players)
+- Delegation is one level deep: channels (subagents, terminals)
   never get the tool. At most `maxParallel` tasks run at once, `maxAssignments` per call.
 
 When a call runs more than one task in a git project, each task gets its own
@@ -159,7 +156,6 @@ internal/
   ssh/           SSH session manager
   store/         SQLite persistence (WAL mode)
   team/          Subagents: team_delegate, roster, a checkout per task
-  teamwork/      Teamwork plans: parts as orchestras, cables, merge, verification
   terminal/      PTY/ConPTY process engine, ring buffer, attach/detach
   tool/          Tool runtime — read_file, write_file, shell, git tools
   types/         Shared domain types
@@ -172,7 +168,7 @@ desktop/
   app.go         Wails bridge (RPC proxy only — no agent logic)
   frontend/      React + TypeScript UI
     src/
-      app/       Page components (Agent, Code, Teamwork, Terminal, Settings, Maps)
+      app/       Page components (Agent, Code, Terminal, Settings, Maps)
       hooks/     React hooks over RPC layer
       lib/       rpc.ts bridge, types.ts, columns.ts
       styles/    global.css (CSS variables, layout, components)
@@ -334,20 +330,11 @@ vitest run        ✓  (5 tests, 2 suites)
 - **The agent knows its machine.** The system prompt has an Environment block (OS, `/bin/sh` syntax, installed tools, which python libraries are missing). A tool call that fails exactly as it already did in the turn is marked so the model changes something instead of repeating it.
 - **Secrets key in the keychain.** On macOS the master key lives in the login keychain (account `master@<data dir>`); a key still in `secrets/master.key` is moved there and the file removed once it reads back. A locked keychain never causes a new key while secrets exist.
 
-### 16. Teamwork: several orchestras
-
-- A job is split into parts (`internal/teamwork`). Each part is an **orchestra**: a conductor (the part's first agent; its channel is a `teamwork` child of the chat) and up to three members (`orchestra` children of the conductor's channel). Budgets: 5 parts, 4 players per part, 14 players in all, trimmed one member at a time from the largest orchestra.
-- **Cables** are dependencies. A part starts as soon as every part it hangs on is done (not wave by wave), and its brief carries their reports. Where two or more cables meet there is a **junction**; the merge orchestra closes the plan.
-- An orchestra with members is played by the engine in three movements, so it works with any model, agent CLIs included: the conductor answers with the split (`{"pieces":[…]}`), the members play their pieces side by side in their own chats, and the conductor finishes with their reports. Every player gets the chat's model.
-- A stopped plan continues with `teamwork.retry`: done parts keep their work; the rest play again in the same chats.
-- The view (`TeamworkView.tsx`, `lib/teamwork.ts graphOf`) puts the orchestras on the left — cards in columns by wave, cables that show whether work has gone through, junction knots — and the conversation in a panel on the right: the request, the plan and its box. Opening a card or a junction swaps the panel to those orchestras' chats (the player picked from a corner pill) and draws one lit cable from what is open to the panel.
-- Agent CLIs now receive Rove's system message (first message of a CLI session), and one-off questions (`ChatRequest.Ask`) run them read-only.
-
 ### 17. Agent: the user's own agents
 
 - The Agent space (internally `office`) is the user's agents (`AgentProfile`). A new one is a name and a logo (`AgentCreate.tsx`); prompt, model and permissions are edited in Settings → Agent (`OfficePanel.tsx`). The space opens the latest chat with an agent.
 - An agent has a logo (`mark` = "shape:face", `color`; drawn by `AgentMark.tsx` from `lib/agentmark.ts`): soft shapes with closed eyes at rest, which open and move while it works or under the pointer. The `run.start` event shows the work from its first moment.
-- `persona.Resolved.Identity` tells an agent who it is. Its job comes from its name, title and prompt, not from a catalog character (Teamwork keeps those); an agent with only a name that says no job asks first.
+- `persona.Resolved.Identity` tells an agent who it is. Its job comes from its name, title and prompt, not from a catalog character; an agent with only a name that says no job asks first.
 - A question with set answers is an `ask` block at the end of a reply, shown as a card (`lib/ask.ts`, `AskCard.tsx`). It is text rather than a tool so that it works with agent CLIs too.
 - Agents do not write code: `persona.AgentMayUse` keeps `write_file`, `patch_file`, `shell` and `git_commit` from Agent chats, and they get no subagents. Agent CLIs follow, through the tools offered (section 18).
 - `internal/agentlink` gives agents `message_agent` (runs in the other agent's chat, one level deep) and `create_agent`, for when the user asks. These are Rove tools, so they reach models connected through an API, not agent CLIs.
@@ -357,7 +344,6 @@ vitest run        ✓  (5 tests, 2 suites)
 ### 18. Agents that hold up
 
 - **Reports keep their end.** Agents narrate first and write the result last; reports passed between parts, members and subagents are cut from the front (`clipTail`), never the end.
-- **Checked before done.** When a Teamwork plan's parts are done, the merge orchestra (or the only part's conductor) is asked to prove the work by running it — build, tests, a served web page fetched with curl, scripts checked with node — and to end with `{"verified", "checks", "problems"}`. A failed check gets one round of fixes and is checked again; the plan keeps the verdict (`Plan.Verify`) and the view shows it. The merge channel has write permission (the reviewer character alone cannot fix).
 - **Permissions reach agent CLIs.** The tools Rove offers (already filtered by the agent's permissions) gate the CLI: Claude Code gets `--disallowedTools` and no bypass when restricted, Codex a read-only sandbox when the agent may not write, Antigravity/Hermes no no-ask mode. Claude Code takes Rove's system message as `--append-system-prompt` on every call.
 
 ### 19. Usage: Rove's own count, the provider's beside it

@@ -48,8 +48,7 @@ func (m *Manager) CreateChild(ctx context.Context, parent types.Session, title s
 	return m.CreateChildIn(ctx, parent, parent.Space, title)
 }
 
-// CreateChildIn opens a child channel in a given space (Teamwork phases use
-// types.SpaceTeamwork, which keeps them out of the Orchestra team).
+// CreateChildIn opens a child channel in a given space.
 func (m *Manager) CreateChildIn(ctx context.Context, parent types.Session, space, title string) (types.Session, error) {
 	now := time.Now().UTC()
 	sess := types.Session{ID: id.NewID(), Title: title, AgentID: parent.AgentID, WorkspaceID: parent.WorkspaceID, ParentID: parent.ID, Space: space, CreatedAt: now, UpdatedAt: now}

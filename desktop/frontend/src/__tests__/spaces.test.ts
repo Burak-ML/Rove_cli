@@ -24,23 +24,23 @@ describe("spaces", () => {
   it("starts in Orchestra, then in the mode used last; each chat keeps its own", () => {
     expect(modeFor({}, "A")).toBe("orchestra");
     expect(modeFor({}, null)).toBe("orchestra");
-    let m = withMode({}, "A", "teamwork");
-    expect(modeFor(m, "A")).toBe("teamwork");
+    let m = withMode({}, "A", "terminal");
+    expect(modeFor(m, "A")).toBe("terminal");
     // a chat without a mode of its own starts in the one used last
-    expect(modeFor(m, "B")).toBe("teamwork");
+    expect(modeFor(m, "B")).toBe("terminal");
     m = withMode(m, "B", "terminal");
-    expect(modeFor(m, "A")).toBe("teamwork");
+    expect(modeFor(m, "A")).toBe("terminal");
     expect(modeFor(m, "B")).toBe("terminal");
     expect(m[LAST]).toBe("terminal");
   });
 
   it("hands a draft's mode to the chat it becomes; a new draft starts in the last mode", () => {
-    let m = withMode({}, null, "teamwork");
-    expect(m[DRAFT]).toBe("teamwork");
+    let m = withMode({}, null, "terminal");
+    expect(m[DRAFT]).toBe("terminal");
     m = adopt(m, "D");
-    expect(modeFor(m, "D")).toBe("teamwork");
+    expect(modeFor(m, "D")).toBe("terminal");
     expect(m).not.toHaveProperty(DRAFT);
-    m = withMode(m, null, "teamwork");
+    m = withMode(m, null, "terminal");
     m = withMode(m, "E", "terminal");
     m = freshDraft(m);
     expect(m).not.toHaveProperty(DRAFT);
