@@ -18,6 +18,9 @@ type Resolved struct {
 	CharacterID string   `json:"characterId,omitempty"`
 	ProfileID   types.ID `json:"profileId,omitempty"`
 	Name        string   `json:"name,omitempty"`
+	Title       string   `json:"title,omitempty"`
+	// unassigned: an agent with nothing but its name to go on
+	unassigned bool
 	// Features is nil when nothing restricts the session (all tools on).
 	Features    []string `json:"features"`
 	ExtraPrompt string   `json:"extraPrompt,omitempty"`
@@ -70,38 +73,54 @@ func Resolve(ctx context.Context, st *store.Store, sessionID types.ID) (Resolved
 }
 
 func (r *Resolved) fromProfile(p types.AgentProfile, override []string) {
-	r.ProfileID, r.Name, r.Model, r.Provider = p.ID, p.Name, p.Model, p.Provider
+	r.ProfileID, r.Name, r.Title, r.Model, r.Provider = p.ID, p.Name, p.Title, p.Model, p.Provider
 	r.Integrations = p.Integrations
-	var charFeatures []string
-	base := ""
+	// the character it was once started from only marks it now: an agent's
+	// job comes from its name, its title and what the user wrote
 	if c, ok := CharacterByID(p.CharacterID); ok {
 		r.CharacterID = c.ID
-		charFeatures = c.Features
-		// "own": the user's prompt stands in for the character's; the
-		// character still lends its default permissions
-		if p.PromptMode != types.PromptOwn {
-			base = c.Prompt
-		}
 	}
-	if extra := strings.TrimSpace(p.SystemPrompt); extra != "" {
-		if base != "" {
-			base += "\n\n" + extra
-		} else {
-			base = extra
-		}
-	}
+	base := strings.TrimSpace(p.SystemPrompt)
+	r.unassigned = base == "" && p.Title == ""
 	r.Prompt = base
 	switch {
 	case override != nil:
 		r.Features = override
 	case p.Features != nil:
 		r.Features = p.Features
-	case charFeatures != nil:
-		r.Features = charFeatures
 	case base != "":
 		r.Features = DefaultFeatures
 	}
 }
+
+// Identity tells an agent who it is. An agent may be made from a name alone:
+// a name that says a job is its job, and one that does not is a reason to
+// ask. Questions with set answers go in an ask block, which the app shows as
+// a card to click (see lib/ask.ts); it works with every model, tools or not.
+func (r Resolved) Identity() string {
+	who := r.Name
+	if r.Title != "" {
+		who += ", " + r.Title
+	}
+	var b strings.Builder
+	b.WriteString("## Who you are\nYou are " + who + ".\n")
+	if r.unassigned {
+		b.WriteString("Nobody has told you your job. If your name says it, take it as your role and work as a specialist in it. " +
+			"If it does not (a person's name, a made-up word), find out what the user wants from you before anything else.\n")
+	}
+	b.WriteString("You do not write code or change files, and you have no tools for it. If you are asked to, say so and point the user to the Code space.\n\n" +
+		"## Asking the user\nWhen the user should choose between a few directions, end your reply with this block and wait. " +
+		"Two to five short options, in the user's language; the app adds a way to answer freely, so leave that out:\n" +
+		"```ask\nThe question?\n- first option\n- second option\n```")
+	return b.String()
+}
+
+// agentDenied are the tools an agent of the Agent space never gets, whatever
+// its permissions say: writing code is the Code space's work.
+var agentDenied = map[string]bool{"write_file": true, "patch_file": true, "shell": true, "git_commit": true}
+
+// AgentMayUse reports whether an agent of the Agent space may have a tool.
+func AgentMayUse(name string) bool { return !agentDenied[name] }
 
 func pick(override, fallback []string) []string {
 	if override != nil {

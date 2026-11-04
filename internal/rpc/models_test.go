@@ -142,3 +142,30 @@ func TestModelsCommandPicksAChatsModel(t *testing.T) {
 type remoteErr struct{ msg string }
 
 func (e *remoteErr) Error() string { return e.msg }
+
+// The offline stand-in is offered only while nothing real is connected.
+func TestModelListHidesFakeOnceRealIsConnected(t *testing.T) {
+	app, err := core.Open(config.Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	s := New(app)
+	ctx := context.Background()
+	list := func() []modelChoice {
+		resp := s.Dispatch(ctx, protocol.Request{Method: protocol.MethodModelList, Token: app.Token})
+		var out []modelChoice
+		if err := json.Unmarshal(resp.Result, &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	_ = app.Store.UpsertProvider(ctx, types.Provider{ID: "f", Name: "fake", Kind: types.ProviderFake, Models: []string{"fake"}})
+	if got := list(); len(got) != 1 || got[0].Provider != "fake" {
+		t.Fatalf("alone, the stand-in stays: %+v", got)
+	}
+	_ = app.Store.UpsertProvider(ctx, types.Provider{ID: "r", Name: "real", Kind: types.ProviderOpenAICompat, Models: []string{"m"}})
+	if got := list(); len(got) != 1 || got[0].Provider != "real" {
+		t.Fatalf("with a real provider: %+v", got)
+	}
+}

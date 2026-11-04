@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/Burak-ML/rove/internal/core"
 	"github.com/Burak-ML/rove/internal/ctxmap"
@@ -61,12 +60,7 @@ func (s *Server) handleCtx(ctx context.Context, req protocol.Request) (json.RawM
 		if p.SessionID == "" {
 			return nil, fmt.Errorf("sessionId required")
 		}
-		// an Agent-space agent stands on the map as "agent:<profile>"
-		if pid, ok := strings.CutPrefix(string(p.SessionID), "agent:"); ok {
-			if _, err := a.Store.GetAgentProfile(ctx, types.ID(pid)); err != nil {
-				return nil, fmt.Errorf("agent not found")
-			}
-		} else if _, err := a.Store.GetSession(ctx, p.SessionID); err != nil {
+		if _, err := a.Store.GetSession(ctx, p.SessionID); err != nil {
 			return nil, fmt.Errorf("session not found")
 		}
 		err := a.Store.PutMapNode(ctx, types.MapNode{SessionID: p.SessionID, X: p.X, Y: p.Y})

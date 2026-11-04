@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -20,20 +21,22 @@ import (
 )
 
 // AgentCLI hands a chat's turn to an agent system installed on this computer
-// — Claude Code, Codex, Antigravity, Hermes — through its non-interactive
+// — Claude Code, Codex, Antigravity, Hermes, OpenCode — through its non-interactive
 // mode, in the chat's folder, signed in with the user's own account. The
 // system brings its own tools and does the work itself; what comes back is
 // its text, streamed. A chat keeps one session with the system, so each turn
 // sends only the new message.
 type AgentCLI struct {
 	NameVal string
-	// System is the catalog id: claude-code, codex, antigravity, hermes.
+	// System is the catalog id: claude-code, codex, antigravity, hermes, opencode.
 	System string
 	// Access is "edits" (change files, ask before anything else — which in a
 	// non-interactive run means no) or "full" (no approval prompts).
 	Access string
 	// Sessions remembers each chat's session with the system.
 	Sessions *AgentSessions
+	// Env adds to the system's environment on each run: a saved token.
+	Env func() []string
 }
 
 // Agent CLI systems the app knows how to drive.
@@ -42,6 +45,7 @@ const (
 	SysCodex       = "codex"
 	SysAntigravity = "antigravity"
 	SysHermes      = "hermes"
+	SysOpenCode    = "opencode"
 )
 
 // AgentBins maps a system to its program.
@@ -50,6 +54,7 @@ var AgentBins = map[string]string{
 	SysCodex:       "codex",
 	SysAntigravity: "agy",
 	SysHermes:      "hermes",
+	SysOpenCode:    "opencode",
 }
 
 // AgentURL is how an agent-cli provider is stored: agent://<system>?access=…
@@ -92,7 +97,14 @@ func FindBin(name string) string {
 		filepath.Join(home, ".local", "bin"), filepath.Join(home, ".claude", "local"),
 		filepath.Join(home, ".npm-global", "bin"), filepath.Join(home, ".bun", "bin"),
 		filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "go", "bin"),
+		filepath.Join(home, ".opencode", "bin"), filepath.Join(home, ".volta", "bin"),
+		filepath.Join(home, ".local", "share", "pnpm"), filepath.Join(home, ".asdf", "shims"),
 		"/opt/homebrew/bin", "/usr/local/bin", "/usr/bin",
+	}
+	// npm installs under the Node version nvm has picked: the newest first
+	if nvm, err := filepath.Glob(filepath.Join(home, ".nvm", "versions", "node", "*", "bin")); err == nil {
+		slices.Reverse(nvm)
+		dirs = append(dirs, nvm...)
 	}
 	exe := name
 	if runtime.GOOS == "windows" {
@@ -105,6 +117,13 @@ func FindBin(name string) string {
 		}
 	}
 	return ""
+}
+
+// PathFor is the PATH to run a program found by FindBin with: its own folder
+// first, because a program npm installed starts through the node beside it,
+// and an app opened from the Finder has neither on its PATH.
+func PathFor(bin string) string {
+	return filepath.Dir(bin) + string(os.PathListSeparator) + richPath()
 }
 
 // richPath is PATH with the usual install places, for the agent's own
@@ -305,6 +324,22 @@ func (a *AgentCLI) Complete(ctx context.Context, req ChatRequest) (<-chan ChatDe
 		if full && g.write && g.shell {
 			args = append(args, "--dangerously-skip-permissions")
 		}
+	case SysOpenCode:
+		args = []string{"run", "--format", "json"}
+		if model != "" {
+			args = append(args, "-m", model)
+		}
+		if sid != "" {
+			args = append(args, "--session", sid)
+		}
+		switch {
+		// its plan agent reads and answers but changes nothing
+		case req.Ask, !g.write:
+			args = append(args, "--agent", "plan")
+		case full && g.shell:
+			args = append(args, "--auto")
+		}
+		args = append(args, text)
 	case SysHermes:
 		args = []string{"-z", text, "--in", dir}
 		if model != "" {
@@ -319,7 +354,10 @@ func (a *AgentCLI) Complete(ctx context.Context, req ChatRequest) (<-chan ChatDe
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PATH="+richPath(), "NO_COLOR=1")
+	cmd.Env = append(os.Environ(), "PATH="+PathFor(bin), "NO_COLOR=1")
+	if a.Env != nil {
+		cmd.Env = append(cmd.Env, a.Env()...)
+	}
 	cmd.Stdin = nil
 	killTree(cmd)
 	// stopped, it gets a moment to go before its output is closed on it
@@ -349,6 +387,8 @@ func (a *AgentCLI) Complete(ctx context.Context, req ChatRequest) (<-chan ChatDe
 			newSID, usage, failure = readClaude(stdout, emit)
 		case SysCodex:
 			newSID, usage, failure = readCodex(stdout, emit)
+		case SysOpenCode:
+			newSID, usage, failure = readOpenCode(stdout, emit)
 		default:
 			readText(stdout, emit)
 		}
@@ -476,6 +516,60 @@ func readCodex(r io.Reader, emit func(string)) (sid string, usage *Usage, failur
 			if failure == "" {
 				failure = ev.Message
 			}
+		}
+	}
+	return sid, usage, failure
+}
+
+// readOpenCode follows `opencode run --format json`: each text part whole,
+// the session to continue next time, and what every step cost.
+func readOpenCode(r io.Reader, emit func(string)) (sid string, usage *Usage, failure string) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	wrote := false
+	for sc.Scan() {
+		var ev struct {
+			Type      string `json:"type"`
+			SessionID string `json:"sessionID"`
+			Part      struct {
+				Text   string `json:"text"`
+				Tokens struct {
+					Input  int `json:"input"`
+					Output int `json:"output"`
+					Cache  struct {
+						Read int `json:"read"`
+					} `json:"cache"`
+				} `json:"tokens"`
+			} `json:"part"`
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(sc.Bytes(), &ev) != nil {
+			continue
+		}
+		if ev.SessionID != "" {
+			sid = ev.SessionID
+		}
+		switch ev.Type {
+		case "text":
+			if ev.Part.Text == "" {
+				continue
+			}
+			if wrote {
+				emit("\n\n")
+			}
+			emit(ev.Part.Text)
+			wrote = true
+		case "step_finish":
+			if usage == nil {
+				usage = &Usage{}
+			}
+			usage.PromptTokens += ev.Part.Tokens.Input
+			usage.CompletionTokens += ev.Part.Tokens.Output
+			usage.CachedTokens += ev.Part.Tokens.Cache.Read
+		case "error":
+			failure = ev.Error.Message
 		}
 	}
 	return sid, usage, failure

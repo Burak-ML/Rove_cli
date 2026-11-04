@@ -756,7 +756,7 @@ func (s *Server) handle(ctx context.Context, req protocol.Request) (json.RawMess
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return nil, err
 		}
-		err := a.Store.DeleteProvider(ctx, p.ID)
+		err := a.DeleteProvider(ctx, p.ID)
 		return core.MustJSON(map[string]any{"ok": err == nil}), err
 	case protocol.MethodMarketList:
 		var p struct {
@@ -1269,14 +1269,6 @@ func (s *Server) handle(ctx context.Context, req protocol.Request) (json.RawMess
 			return nil, err
 		}
 		err := a.Store.DeleteAgentProfile(ctx, p.ID)
-		if err == nil {
-			// a removed agent's tasks and watches go with it
-			_ = a.Store.DeleteStaffTasks(ctx, p.ID)
-			_ = a.Store.DeleteStaffWatchesOf(ctx, p.ID)
-			_ = a.Store.DeleteStaffSchedulesOf(ctx, p.ID)
-			_ = a.Store.DeleteStaffMonitorsOf(ctx, p.ID)
-			_ = a.Store.DeleteStaffHandoffsOf(ctx, p.ID)
-		}
 		return core.MustJSON(map[string]any{"ok": err == nil}), err
 
 	case protocol.MethodProfileSetDefault:
@@ -1361,7 +1353,8 @@ func (s *Server) handle(ctx context.Context, req protocol.Request) (json.RawMess
 		protocol.MethodCtxUpdateLink, protocol.MethodCtxUnlink, protocol.MethodCtxSend, protocol.MethodCtxRelays, protocol.MethodCtxAssistant:
 		return s.handleCtx(ctx, req)
 
-	case protocol.MethodConnectCatalog, protocol.MethodConnectTerminal, protocol.MethodConnectAdd:
+	case protocol.MethodConnectCatalog, protocol.MethodConnectTerminal, protocol.MethodConnectAdd,
+		protocol.MethodConnectToken, protocol.MethodConnectBrowser:
 		return s.handleConnect(ctx, req)
 
 	case protocol.MethodPersonaCatalog, protocol.MethodPersonaGet, protocol.MethodPersonaSet,
@@ -1375,15 +1368,6 @@ func (s *Server) handle(ctx context.Context, req protocol.Request) (json.RawMess
 	case protocol.MethodWorkPlan, protocol.MethodWorkGet, protocol.MethodWorkRemovePhase, protocol.MethodWorkRemoveAgent,
 		protocol.MethodWorkApprove, protocol.MethodWorkCancel, protocol.MethodWorkDiscard, protocol.MethodWorkRetry:
 		return s.handleTeamwork(ctx, req)
-	case protocol.MethodStaffMembers, protocol.MethodStaffAssign, protocol.MethodStaffTasks, protocol.MethodStaffSeen,
-		protocol.MethodStaffStop, protocol.MethodStaffNoteAdd, protocol.MethodStaffNoteDelete,
-		protocol.MethodStaffWatches, protocol.MethodStaffWatchSave, protocol.MethodStaffWatchDelete,
-		protocol.MethodStaffSchedules, protocol.MethodStaffScheduleSave, protocol.MethodStaffScheduleDelete,
-		protocol.MethodStaffDiff, protocol.MethodStaffApply, protocol.MethodStaffDiscard, protocol.MethodStaffPR,
-		protocol.MethodStaffMonitors, protocol.MethodStaffMonitorSave, protocol.MethodStaffMonitorDelete, protocol.MethodStaffMonitorPresets,
-		protocol.MethodStaffHandoffs, protocol.MethodStaffHandoffSave, protocol.MethodStaffHandoffDelete:
-		return s.handleStaff(ctx, req)
-
 	case protocol.MethodModelList, protocol.MethodSessionModel, protocol.MethodSessionSetModel:
 		return s.handleModels(ctx, req)
 

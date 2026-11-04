@@ -298,42 +298,6 @@ func (s *Store) migrate() error {
 			updated_at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_teamwork_plans_session ON teamwork_plans(session_id, created_at)`,
-		`CREATE TABLE IF NOT EXISTS staff_tasks (
-			id TEXT PRIMARY KEY,
-			profile_id TEXT NOT NULL,
-			session_id TEXT NOT NULL DEFAULT '',
-			body TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_staff_tasks_profile ON staff_tasks(profile_id, created_at)`,
-		`CREATE TABLE IF NOT EXISTS staff_watches (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			profile_id TEXT NOT NULL,
-			body TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_staff_watches_session ON staff_watches(session_id)`,
-		`CREATE TABLE IF NOT EXISTS staff_handoffs (
-			id TEXT PRIMARY KEY,
-			from_id TEXT NOT NULL,
-			to_id TEXT NOT NULL,
-			body TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS staff_monitors (
-			id TEXT PRIMARY KEY,
-			profile_id TEXT NOT NULL,
-			body TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS staff_schedules (
-			id TEXT PRIMARY KEY,
-			profile_id TEXT NOT NULL,
-			body TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		)`,
 		`CREATE TABLE IF NOT EXISTS session_models (
 			session_id TEXT PRIMARY KEY,
 			provider TEXT NOT NULL DEFAULT '',

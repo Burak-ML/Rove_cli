@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/Burak-ML/rove/internal/connect"
 	"github.com/Burak-ML/rove/internal/core"
@@ -18,6 +19,8 @@ func (s *Server) handleConnect(ctx context.Context, req protocol.Request) (json.
 		ID     string `json:"id"`
 		Step   string `json:"step"`
 		Access string `json:"access"`
+		// connect.token: the token to keep; empty removes it
+		Token string `json:"token"`
 	}
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
@@ -26,9 +29,38 @@ func (s *Server) handleConnect(ctx context.Context, req protocol.Request) (json.
 	}
 	switch req.Method {
 	case protocol.MethodConnectCatalog:
-		return core.MustJSON(connect.Detect(ctx)), nil
+		return core.MustJSON(connect.Detect(ctx, a.Secrets.Get)), nil
+	case protocol.MethodConnectToken:
+		sys, ok := connect.Find(p.ID)
+		if !ok || sys.TokenEnv == "" {
+			return nil, fmt.Errorf("%q takes no token", p.ID)
+		}
+		token := strings.TrimSpace(p.Token)
+		if token == "" {
+			_ = a.Secrets.Delete(connect.TokenSecret(p.ID))
+			return core.MustJSON(map[string]any{"ok": true}), nil
+		}
+		if strings.ContainsAny(token, " \t\r\n") {
+			return nil, fmt.Errorf("that does not look like a token: it has spaces in it")
+		}
+		if err := a.Secrets.Put(connect.TokenSecret(p.ID), token); err != nil {
+			return nil, err
+		}
+		return core.MustJSON(map[string]any{"ok": true}), nil
+	case protocol.MethodConnectBrowser:
+		if p.Step == connect.StepLogout {
+			if err := connect.RunLogout(p.ID); err != nil {
+				return nil, err
+			}
+			return core.MustJSON(map[string]any{"ok": true}), nil
+		}
+		url, err := connect.BrowserLogin(p.ID, p.Step == connect.StepSwitch)
+		if err != nil {
+			return nil, err
+		}
+		return core.MustJSON(map[string]any{"url": url}), nil
 	case protocol.MethodConnectTerminal:
-		if p.Step != connect.StepInstall && p.Step != connect.StepLogin {
+		if !connect.ValidStep(p.Step) {
 			return nil, fmt.Errorf("unknown step %q", p.Step)
 		}
 		if err := connect.OpenTerminal(p.ID, p.Step); err != nil {

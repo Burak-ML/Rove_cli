@@ -68,6 +68,28 @@ func TestReadCodex(t *testing.T) {
 
 // The real path: a stand-in `claude` on PATH that answers in stream-json.
 // The chat's session is kept and the next turn resumes it.
+func TestReadOpenCode(t *testing.T) {
+	in := `{"type":"step_start","sessionID":"ses_1","part":{"type":"step-start"}}
+{"type":"text","sessionID":"ses_1","part":{"type":"text","text":"Bakıyorum."}}
+{"type":"tool_use","sessionID":"ses_1","part":{"type":"tool","tool":"read"}}
+{"type":"step_finish","sessionID":"ses_1","part":{"tokens":{"input":100,"output":5,"cache":{"read":40}}}}
+{"type":"text","sessionID":"ses_1","part":{"type":"text","text":"Bitti."}}
+{"type":"step_finish","sessionID":"ses_1","part":{"tokens":{"input":20,"output":3,"cache":{"read":0}}}}
+`
+	var got strings.Builder
+	sid, u, fail := readOpenCode(strings.NewReader(in), func(s string) { got.WriteString(s) })
+	if sid != "ses_1" || fail != "" || got.String() != "Bakıyorum.\n\nBitti." {
+		t.Fatalf("sid = %q, fail = %q, text = %q", sid, fail, got.String())
+	}
+	if u == nil || u.PromptTokens != 120 || u.CompletionTokens != 8 || u.CachedTokens != 40 {
+		t.Fatalf("usage = %+v", u)
+	}
+	_, _, fail = readOpenCode(strings.NewReader(`{"type":"error","sessionID":"s","error":{"type":"provider.no-route","message":"Model unavailable: x/y"}}`), func(string) {})
+	if fail != "Model unavailable: x/y" {
+		t.Fatalf("fail = %q", fail)
+	}
+}
+
 func TestAgentCLIClaudeStream(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script stand-in")

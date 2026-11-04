@@ -32,3 +32,10 @@ func (s *Store) SetSessionModel(ctx context.Context, sessionID types.ID, m types
 		sessionID, m.Provider, m.Model, ts(time.Now().UTC()))
 	return err
 }
+
+// ForgetProviderModels drops the chats' model picks on a provider that is
+// gone, so they go back to their profile's or agent's model.
+func (s *Store) ForgetProviderModels(ctx context.Context, provider string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM session_models WHERE provider=?`, provider)
+	return err
+}

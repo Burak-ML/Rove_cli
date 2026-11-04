@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Burak-ML/rove/internal/agent"
+	"github.com/Burak-ML/rove/internal/agentlink"
 	"github.com/Burak-ML/rove/internal/approval"
 	"github.com/Burak-ML/rove/internal/automation"
 	"github.com/Burak-ML/rove/internal/checkpoint"
@@ -41,7 +42,6 @@ import (
 	"github.com/Burak-ML/rove/internal/session"
 	"github.com/Burak-ML/rove/internal/skill"
 	"github.com/Burak-ML/rove/internal/ssh"
-	"github.com/Burak-ML/rove/internal/staff"
 	"github.com/Burak-ML/rove/internal/store"
 	"github.com/Burak-ML/rove/internal/team"
 	"github.com/Burak-ML/rove/internal/teamwork"
@@ -76,7 +76,6 @@ type App struct {
 	Subagents *team.Subagents
 	Work      *teamwork.Engine
 	// Staff runs the Agent space's team: tasks, reports, notes, colleagues.
-	Staff *staff.Engine
 	// Panes runs a session's terminals as one team (terminal mode).
 	Panes   *panes.Hub
 	Term    *terminal.Engine
@@ -223,33 +222,18 @@ func Open(cfg config.Config) (*App, error) {
 	}
 	agents.SetClaims(hub)
 	tools.Register(panes.SendTool{Hub: hub})
-	// the Agent space's agents work like a team: titles, notes of their own,
-	// tasks handed out with a report back, and colleagues to ask
-	crewOf := staff.New(st, sess, bus)
-	crewOf.Run = agents.Run
-	crewOf.Ask = agents.Ask
-	// each task works in a checkout of its own, kept for the user to review
-	crewOf.Git = gitwt.New()
-	crewOf.WorktreeRoot = filepath.Join(cfg.DataDir, "worktrees", "agents")
-	crewOf.Running = agents.Running
-	crewOf.Cancel = agents.CancelSession
-	crewOf.DefaultAgent = func(ctx context.Context) (types.ID, error) {
+	// a finished turn feeds the Session Map's cables to other chats
+	agents.SetRunHook(links.OnRunDone)
+	// the Agent space's agents reach one another when the user asks
+	desk := agentlink.New(st, sess, bus)
+	desk.Run = agents.Run
+	desk.Running = agents.Running
+	desk.DefaultAgent = func(ctx context.Context) (types.ID, error) {
 		a, err := agents.EnsureDefault(ctx)
 		return a.ID, err
 	}
-	// a finished turn feeds the Session Map: cables to other chats, and the
-	// agents watching the chat
-	agents.SetRunHook(func(req agent.RunRequest, res agent.RunResult) {
-		links.OnRunDone(req, res)
-		crewOf.OnRunDone(req, res)
-	})
-	tools.Register(staff.NoteTool{E: crewOf})
-	tools.Register(staff.AskTool{E: crewOf})
-	// a chat sets up automations when asked to: watches, cables, schedules
-	for _, tl := range staff.AutomationTools(crewOf) {
-		tools.Register(tl)
-	}
-	crewOf.Start()
+	tools.Register(agentlink.MessageTool{D: desk})
+	tools.Register(agentlink.CreateTool{D: desk})
 	agents.SetPersonaSource(func(ctx context.Context, sessionID types.ID) agent.Persona {
 		r, err := persona.Resolve(ctx, st, sessionID)
 		if err != nil {
@@ -268,24 +252,26 @@ func Open(cfg config.Config) (*App, error) {
 		// terminals of one session see what the others do; it changes every
 		// turn, so it goes with the latest message, not the cached prompt
 		board := hub.Board(ctx, sessionID)
-		// an Agent-space agent knows who it is, its notes and its colleagues
-		self := crewOf.Brief(ctx, sessionID)
+		// an Agent-space agent knows who it is
+		self := ""
+		// a chat in the Agent space, or from before there were spaces
+		chat, _ := st.GetSession(ctx, sessionID)
+		isAgent := r.Source == "profile" && chat.Space != types.SpaceChat
+		if isAgent {
+			self = strings.TrimSpace(r.Identity() + "\n\n" + desk.Brief(ctx, r.ProfileID))
+		}
 		p.Context = strings.TrimSpace(strings.Join([]string{self, brief}, "\n\n"))
 		p.Live = board
 		p.Allow = func(name string) bool {
+			// an agent's subagents could write what it may not
 			if name == team.DelegateName {
-				return brief != ""
+				return brief != "" && !isAgent
 			}
-			if name == staff.NoteName {
-				return self != ""
+			if name == agentlink.MessageName || name == agentlink.CreateName {
+				return isAgent && !desk.Answering(sessionID)
 			}
-			if name == staff.AskName {
-				return self != "" && crewOf.CanAsk(ctx, sessionID)
-			}
-			// only a chat the user talks in sets up automations: never a
-			// subagent, a terminal pane or an agent's own task
-			if staff.IsAutomationTool(name) {
-				return crewOf.CanAutomate(ctx, sessionID)
+			if isAgent && !persona.AgentMayUse(name) {
+				return false
 			}
 			if name == panes.SendName {
 				return board != ""
@@ -298,7 +284,7 @@ func Open(cfg config.Config) (*App, error) {
 	// the goal reviewer is a tool-less call on the goal agent's model
 	j.Ask = agents.Ask
 	ws := workspace.New(st, git)
-	crewOf.WorkspacePath = func(ctx context.Context, id types.ID) string {
+	desk.WorkspacePath = func(ctx context.Context, id types.ID) string {
 		if w, err := ws.Get(ctx, id); err == nil {
 			return w.Path
 		}
@@ -382,7 +368,7 @@ func Open(cfg config.Config) (*App, error) {
 
 	app := &App{
 		Cfg: cfg, Store: st, Bus: bus, Secrets: sec, Perm: perm, Tools: tools, Router: router,
-		Agents: agents, Sess: sess, Mem: mem, Judge: j, Goals: goals, Team: crew, Subagents: subs, Work: work, Staff: crewOf, Panes: hub,
+		Agents: agents, Sess: sess, Mem: mem, Judge: j, Goals: goals, Team: crew, Subagents: subs, Work: work, Panes: hub,
 		Approvals: gate,
 		Term:      term, SSH: sshMgr, Git: git, WS: ws, Skills: sk, Market: market, MCP: mcpRt,
 		Auto: auto, Webhook: wh, Token: token, Checkpt: checkpoint.New(), Index: idx, Map: cmap, Links: links,
@@ -453,6 +439,16 @@ func (a *App) hydrateProviders(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// a provider deleted since the last load must not keep answering
+	saved := map[string]bool{}
+	for _, p := range list {
+		saved[p.Name] = true
+	}
+	for _, name := range a.Router.List() {
+		if !saved[name] && name != "fake" { // the built-in offline one stays
+			a.Router.Unregister(name)
+		}
+	}
 	for _, p := range list {
 		p.Kind = types.NormalizeProviderKind(p.Kind)
 		switch p.Kind {
@@ -463,7 +459,8 @@ func (a *App) hydrateProviders(ctx context.Context) error {
 			if !ok {
 				continue
 			}
-			a.Router.Register(p.Name, &provider.AgentCLI{NameVal: p.Name, System: system, Access: access, Sessions: a.AgentSessions})
+			a.Router.Register(p.Name, &provider.AgentCLI{NameVal: p.Name, System: system, Access: access, Sessions: a.AgentSessions,
+				Env: func() []string { return connect.TokenEnv(system, a.Secrets.Get) }})
 			// the account's models change as the system updates its list:
 			// pick that up whenever providers are loaded
 			if models := connect.AccountModels(system); !slices.Equal(models, p.Models) {
@@ -553,9 +550,25 @@ func (a *App) SaveProvider(ctx context.Context, p types.Provider) (ProviderResul
 			res.ModelsError = err.Error()
 		}
 	}
+	// the first real connection answers from then on; without this chats stay
+	// on the built-in offline model until someone picks another
+	if p.Kind != types.ProviderFake && len(p.Models) > 0 && !a.hasDefaultProvider(ctx, p.ID) {
+		p.Default = true
+	}
 	saved, err := a.ApplyProvider(ctx, p)
 	res.Provider = saved
 	return res, err
+}
+
+// hasDefaultProvider reports whether a real provider other than id is the default.
+func (a *App) hasDefaultProvider(ctx context.Context, id types.ID) bool {
+	list, err := a.Store.ListProviders(ctx)
+	if err != nil {
+		return true
+	}
+	return slices.ContainsFunc(list, func(x types.Provider) bool {
+		return x.Default && x.ID != id && types.NormalizeProviderKind(x.Kind) != types.ProviderFake
+	})
 }
 
 // RefreshProviderModels replaces a provider's model list with what it
@@ -640,6 +653,20 @@ func (a *App) ApplyProvider(ctx context.Context, p types.Provider) (types.Provid
 		p.SecretID = p.Name + "-key"
 	}
 	if p.ID == "" {
+		// adding a provider again by the same name replaces it: two rows of
+		// one name would leave which one runs to chance
+		existing, err := a.Store.ListProviders(ctx)
+		if err != nil {
+			return p, err
+		}
+		for _, cur := range existing {
+			if strings.EqualFold(cur.Name, p.Name) {
+				p.ID, p.Default = cur.ID, p.Default || cur.Default
+				break
+			}
+		}
+	}
+	if p.ID == "" {
 		p.ID = id.NewID()
 	}
 	if !p.Default {
@@ -667,11 +694,92 @@ func (a *App) ApplyProvider(ctx context.Context, p types.Provider) (types.Provid
 	return p, a.fixAgentModels(ctx, p)
 }
 
-func (a *App) recover(ctx context.Context) {
-	// a task the daemon was working on when it stopped did not finish
-	if a.Staff != nil {
-		a.Staff.Recover(ctx)
+// DeleteProvider removes a provider for good: its row, its key (unless
+// another provider shares it), and its place in the router. If it was the
+// default, the next real provider takes over, and agents that used it move
+// there, so a provider added after it is the one that answers.
+func (a *App) DeleteProvider(ctx context.Context, pid types.ID) error {
+	list, err := a.Store.ListProviders(ctx)
+	if err != nil {
+		return err
 	}
+	var gone *types.Provider
+	var rest []types.Provider
+	for i := range list {
+		if list[i].ID == pid {
+			gone = &list[i]
+		} else {
+			rest = append(rest, list[i])
+		}
+	}
+	if gone == nil {
+		return nil
+	}
+	if err := a.Store.DeleteProvider(ctx, pid); err != nil {
+		return err
+	}
+	// unless a provider of the same name is still there
+	if !slices.ContainsFunc(rest, func(p types.Provider) bool { return p.Name == gone.Name }) {
+		if err := a.Store.ForgetProviderModels(ctx, gone.Name); err != nil {
+			return err
+		}
+	}
+	if gone.SecretID != "" && a.Secrets != nil && !slices.ContainsFunc(rest, func(p types.Provider) bool { return p.SecretID == gone.SecretID }) {
+		_ = a.Secrets.Delete(gone.SecretID)
+	}
+	// with nothing left, the offline provider keeps the app answering
+	if len(rest) == 0 {
+		fake := types.Provider{ID: id.NewID(), Name: "fake", Kind: types.ProviderFake, Models: []string{"fake"}, Default: true}
+		if err := a.Store.UpsertProvider(ctx, fake); err != nil {
+			return err
+		}
+		rest = append(rest, fake)
+	}
+	next := rest[0]
+	for _, p := range rest {
+		if p.Default && types.NormalizeProviderKind(p.Kind) != types.ProviderFake {
+			next = p
+			break
+		}
+		if types.NormalizeProviderKind(next.Kind) == types.ProviderFake && types.NormalizeProviderKind(p.Kind) != types.ProviderFake {
+			next = p
+		}
+	}
+	if gone.Default && !next.Default {
+		next.Default = true
+		if err := a.Store.UpsertProvider(ctx, next); err != nil {
+			return err
+		}
+	}
+	if err := a.hydrateProviders(ctx); err != nil {
+		return err
+	}
+	if next.Default {
+		a.Router.SetDefault("default", next.Name)
+	}
+	if a.Agents == nil {
+		return nil
+	}
+	agents, err := a.Agents.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, ag := range agents {
+		if ag.Provider != gone.Name {
+			continue
+		}
+		ag.Provider, ag.Model = next.Name, ""
+		if len(next.Models) > 0 {
+			ag.Model = next.Models[0]
+		}
+		if _, err := a.Agents.Upsert(ctx, ag); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) recover(ctx context.Context) {
 	goals, err := a.Goals.List(ctx)
 	if err != nil {
 		return
@@ -699,9 +807,6 @@ func (a *App) Close() error {
 	}
 	if a.Goals != nil {
 		a.Goals.Close()
-	}
-	if a.Staff != nil {
-		a.Staff.Close()
 	}
 	if a.Bus != nil {
 		a.Bus.Close()

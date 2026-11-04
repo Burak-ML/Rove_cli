@@ -187,6 +187,8 @@ const (
 	MethodConnectCatalog  = "connect.catalog"
 	MethodConnectTerminal = "connect.terminal"
 	MethodConnectAdd      = "connect.add"
+	MethodConnectToken    = "connect.token"
+	MethodConnectBrowser  = "connect.browser"
 
 	// Session personas: expert characters, profiles and feature toggles.
 	MethodPersonaCatalog = "persona.catalog"
@@ -216,36 +218,12 @@ const (
 
 	// Staff: the Agent space's team — who is working on what, tasks handed
 	// out with a report back, and each agent's notes (see internal/staff).
-	MethodStaffMembers    = "staff.members"
-	MethodStaffAssign     = "staff.assign"
-	MethodStaffTasks      = "staff.tasks"
-	MethodStaffSeen       = "staff.seen"
-	MethodStaffStop       = "staff.stop"
-	MethodStaffNoteAdd    = "staff.noteAdd"
-	MethodStaffNoteDelete = "staff.noteDelete"
 	// watches: an agent watching a chat on the Session Map
-	MethodStaffWatches     = "staff.watches"
-	MethodStaffWatchSave   = "staff.watchSave"
-	MethodStaffWatchDelete = "staff.watchDelete"
 	// schedules: an agent given a task on a timer
-	MethodStaffSchedules      = "staff.schedules"
-	MethodStaffScheduleSave   = "staff.scheduleSave"
-	MethodStaffScheduleDelete = "staff.scheduleDelete"
 	// a task's changes, kept in its own checkout: see, apply, throw away,
 	// or open as a pull request
-	MethodStaffDiff    = "staff.diff"
-	MethodStaffApply   = "staff.apply"
-	MethodStaffDiscard = "staff.discard"
-	MethodStaffPR      = "staff.pr"
 	// monitors: a command checked on a timer, a task when it shows something new
-	MethodStaffMonitors       = "staff.monitors"
-	MethodStaffMonitorSave    = "staff.monitorSave"
-	MethodStaffMonitorDelete  = "staff.monitorDelete"
-	MethodStaffMonitorPresets = "staff.monitorPresets"
 	// handoffs: one agent's finished work handed on to another
-	MethodStaffHandoffs      = "staff.handoffs"
-	MethodStaffHandoffSave   = "staff.handoffSave"
-	MethodStaffHandoffDelete = "staff.handoffDelete"
 
 	// Models: what every configured provider offers, and a chat's own pick.
 	MethodModelList       = "model.list"

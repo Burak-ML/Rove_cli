@@ -146,6 +146,18 @@ func (s *Store) Get(id string) (string, error) {
 	return string(pt), nil
 }
 
+// Delete removes a secret; ErrNotFound if there was none.
+func (s *Store) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.mem, id)
+	err := os.Remove(s.blobPath(id))
+	if os.IsNotExist(err) {
+		return ErrNotFound
+	}
+	return err
+}
+
 func (s *Store) blobPath(id string) string {
 	safe := base64.RawURLEncoding.EncodeToString([]byte(id))
 	return filepath.Join(s.dir, safe+".enc")

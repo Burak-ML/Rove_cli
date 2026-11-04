@@ -297,6 +297,11 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (res RunResult, err 
 	h := runHandle{agent: req.AgentID, seq: rt.seq, cancel: cancel}
 	rt.cancels[key] = h
 	rt.mu.Unlock()
+	// the model may think a long while before its first word: the app shows
+	// the run from here, not from the first word
+	if rt.bus != nil && req.SessionID != "" {
+		rt.bus.Publish(types.Event{Type: types.EventRunStart, Topic: "session." + string(req.SessionID), Payload: map[string]any{"sessionId": string(req.SessionID), "runId": string(runID)}})
+	}
 	defer func() {
 		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("run %s (session %s): %v", req.AgentID, req.SessionID, err)

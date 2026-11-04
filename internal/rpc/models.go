@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/Burak-ML/rove/internal/core"
 	"github.com/Burak-ML/rove/internal/persona"
@@ -48,9 +49,17 @@ func (s *Server) handleModels(ctx context.Context, req protocol.Request) (json.R
 		if err != nil {
 			return nil, err
 		}
+		// the offline stand-in answers nothing real: it is only offered
+		// until something real is connected
+		real := slices.ContainsFunc(provs, func(pr types.Provider) bool {
+			return types.NormalizeProviderKind(pr.Kind) != types.ProviderFake && len(pr.Models) > 0
+		})
 		out := []modelChoice{}
 		seen := map[string]bool{}
 		for _, pr := range provs {
+			if real && types.NormalizeProviderKind(pr.Kind) == types.ProviderFake {
+				continue
+			}
 			for _, m := range pr.Models {
 				key := pr.Name + "\x00" + m
 				if m == "" || seen[key] {

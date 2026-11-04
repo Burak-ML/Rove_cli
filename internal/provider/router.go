@@ -169,6 +169,29 @@ func (r *Router) Register(name string, c Completer) {
 	}
 }
 
+// Unregister drops a provider that is no longer saved: profiles that used
+// it fall back, and the fallback moves to another provider, a real one
+// before the fake.
+func (r *Router) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.providers, name)
+	for profile, p := range r.defaults {
+		if p == name {
+			delete(r.defaults, profile)
+		}
+	}
+	if r.fallback != name {
+		return
+	}
+	r.fallback = ""
+	for k := range r.providers {
+		if r.fallback == "" || (r.fallback == "fake" && k != "fake") {
+			r.fallback = k
+		}
+	}
+}
+
 func (r *Router) SetDefault(profile, provider string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

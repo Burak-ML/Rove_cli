@@ -95,11 +95,19 @@ func TestChatAgentAndDelegateVisibility(t *testing.T) {
 		t.Fatal("delegate tool not registered")
 		return false
 	}
-	sub, err := app.Sess.CreateChildIn(ctx, sess, types.SpaceWorker, "Subagent · x")
+	// an Agent-space agent does not write code, so it gets no subagents that could
+	if allowed(sess.ID) {
+		t.Fatal("delegate must be off for an agent's chat")
+	}
+	var code types.Session
+	if err := call(protocol.MethodSessionCreate, map[string]any{"space": "chat"}, &code); err != nil {
+		t.Fatal(err)
+	}
+	sub, err := app.Sess.CreateChildIn(ctx, code, types.SpaceWorker, "Subagent · x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !allowed(sess.ID) || allowed(sub.ID) {
+	if !allowed(code.ID) || allowed(sub.ID) {
 		t.Fatal("delegate must be on for the chat and off for its subagents")
 	}
 }

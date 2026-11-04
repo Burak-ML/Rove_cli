@@ -659,6 +659,7 @@ const (
 	EventTerminalData   EventType = "terminal.data"
 	EventTerminalExit   EventType = "terminal.exit"
 	EventAgentStatus    EventType = "agent.status"
+	EventRunStart       EventType = "run.start"
 	EventRunDone        EventType = "run.done"
 	EventLog            EventType = "log"
 	EventError          EventType = "error"

@@ -70,11 +70,9 @@ func TestResolvePrecedence(t *testing.T) {
 	if r.Source != "default-profile" || r.CharacterID != "security" || r.Model != "m1" {
 		t.Fatalf("default profile = %+v", r)
 	}
-	if !strings.Contains(r.Prompt, "application security engineer") || !strings.Contains(r.Prompt, "auth module") {
+	// a profile's old character no longer writes its prompt or its permissions
+	if strings.Contains(r.Prompt, "application security engineer") || !strings.Contains(r.Prompt, "auth module") {
 		t.Fatalf("profile prompt = %q", r.Prompt)
-	}
-	if r.AllowTool("write_file") {
-		t.Fatal("security character has no write feature")
 	}
 
 	// the session's own character wins, with feature overrides and rules
@@ -126,21 +124,35 @@ func TestMatch(t *testing.T) {
 
 // An office agent can keep its character's permissions but speak with a
 // prompt of the user's own.
-func TestProfileOwnPrompt(t *testing.T) {
+func TestProfileNameIsItsRole(t *testing.T) {
 	ctx := context.Background()
 	st := openStore(t)
-	_, _ = st.UpsertAgentProfile(ctx, types.AgentProfile{ID: "p2", Name: "Mine", CharacterID: "security", SystemPrompt: "You review only Go code.", PromptMode: types.PromptOwn, Mark: "hex:visor", Color: "#3fb0a0"})
-	_ = st.PutSessionPersona(ctx, types.SessionPersona{SessionID: "s1", ProfileID: "p2"})
+	_, _ = st.UpsertAgentProfile(ctx, types.AgentProfile{ID: "p3", Name: "Siber güvenlik"})
+	_ = st.PutSessionPersona(ctx, types.SessionPersona{SessionID: "s1", ProfileID: "p3"})
 	r, _ := Resolve(ctx, st, "s1")
-	if strings.Contains(r.Prompt, "application security engineer") || !strings.HasPrefix(r.Prompt, "You review only Go code.") {
-		t.Fatalf("own prompt = %q", r.Prompt)
+	if id := r.Identity(); !strings.Contains(id, "You are Siber güvenlik.") || !strings.Contains(id, "find out what the user wants") || !strings.Contains(id, "```ask") {
+		t.Fatalf("identity = %q", id)
 	}
-	if r.AllowTool("write_file") {
-		t.Fatal("the character's permissions should still apply")
+	_, _ = st.UpsertAgentProfile(ctx, types.AgentProfile{ID: "p3", Name: "Ayşe", Title: "Editör"})
+	if r, _ = Resolve(ctx, st, "s1"); strings.Contains(r.Identity(), "find out what the user wants") {
+		t.Fatal("an agent with a title has been told its job")
 	}
-	p, _ := st.GetAgentProfile(ctx, "p2")
-	if p.Mark != "hex:visor" || p.PromptMode != types.PromptOwn || p.Color != "#3fb0a0" {
-		t.Fatalf("stored = %+v", p)
+	if r.Prompt != "" {
+		t.Fatalf("a name alone adds no prompt: %q", r.Prompt)
+	}
+	if r.Features != nil {
+		t.Fatalf("a name must not narrow what the agent may do: %v", r.Features)
+	}
+}
+
+func TestAgentsDoNotWriteCode(t *testing.T) {
+	for _, name := range []string{"write_file", "patch_file", "shell", "git_commit"} {
+		if AgentMayUse(name) {
+			t.Fatalf("%s must stay out of an agent's hands", name)
+		}
+	}
+	if !AgentMayUse("read_file") || !AgentMayUse("list_dir") {
+		t.Fatal("agents still read")
 	}
 }
 
