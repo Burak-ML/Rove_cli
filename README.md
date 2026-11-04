@@ -8,8 +8,12 @@
 
 Rove Code runs one background process, the daemon, that owns all state: sessions, goals, terminals, secrets and memory. The desktop app and the terminal client are thin front ends over the same daemon, so a session started in one can be continued in the other.
 
+No account and no subscription: it runs on your computer, and you connect your own models.
+
 ## Features
 
+- **Agents you talk to.** Make an agent from a name and a logo. Agents answer, read and ask you what they need; they do not write code. When you ask, they message each other or create new agents.
+- **Connect what you already have.** Claude Code (setup token), Codex (browser sign-in), Hermes, Antigravity, OpenCode with its free models, any model API, or a custom OpenAI-compatible address.
 - **One daemon, several clients.** The Wails + React desktop app, the terminal UI and the CLI all talk to the same local process over JSON-RPC (HTTP and a Unix socket).
 - **Goal engine with a judge.** Goals persist in SQLite across restarts. After each agent iteration a judge runs deterministic quality gates (build, test, lint) and returns `DONE`, `CONTINUE` or `BLOCKED`.
 - **Subagents with isolated checkouts.** An agent can delegate tasks to subagents. When several tasks run in a git project, each gets its own worktree and returns its changes as a patch for you to apply or discard.
@@ -81,6 +85,7 @@ go test ./...
 
 # Desktop frontend
 cd desktop/frontend && npm test -- --run && npx tsc --noEmit
+npm run test:e2e   # the whole app against a real daemon
 ```
 
 Local desktop builds: `./build-mac.sh` on macOS, `.\build-windows.ps1` on Windows.

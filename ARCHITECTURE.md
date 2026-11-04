@@ -10,7 +10,7 @@ headless daemon share the same core.
 ┌──────────────────────────────────────────────────────────────┐
 │                        Desktop (Wails)                       │
 │              React + TypeScript presentation layer           │
-│  (Office, Chat, Teamwork, Terminal, Settings, Maps, SSE)     │
+│  (Agent, Code, Teamwork, Terminal, Settings, Maps, SSE)      │
 └──────────────────────────┬───────────────────────────────────┘
                            │ HTTP JSON-RPC + SSE
 ┌──────────────────────────▼───────────────────────────────────┐
@@ -172,7 +172,7 @@ desktop/
   app.go         Wails bridge (RPC proxy only — no agent logic)
   frontend/      React + TypeScript UI
     src/
-      app/       Page components (Office, Chat, Teamwork, Terminal, Settings, Maps)
+      app/       Page components (Agent, Code, Teamwork, Terminal, Settings, Maps)
       hooks/     React hooks over RPC layer
       lib/       rpc.ts bridge, types.ts, columns.ts
       styles/    global.css (CSS variables, layout, components)
@@ -216,10 +216,13 @@ All acceptance criteria met. Final gate run (2026-09-14):
 
 **Connected accounts.** `internal/connect` is the catalog a user adds providers from
 (Settings → Providers → Add): agent systems on this computer signed in with the user's own
-account (Claude Code, Codex, Antigravity, Hermes), model APIs that take a key (OpenAI,
+account (Claude Code, Codex, Antigravity, Hermes, OpenCode), model APIs that take a key (OpenAI,
 Anthropic, Gemini, OpenRouter, …) and local servers (OpenClaw's gateway, Ollama). It finds
 what is installed and signed in, and opens the system terminal for an install or a
-sign-in (the CLI opens the browser) — only the catalog's fixed commands, picked by ID. An
+sign-in — only the catalog's fixed commands, picked by ID. Claude Code also takes a setup
+token, kept with the other secrets and passed as its environment; Codex signs in through the
+browser with no terminal; OpenCode's free models need no account. The first real provider
+becomes the default, and the offline fake provider leaves `model.list` once one is connected. An
 agent system is a provider of kind `agent-cli` (`agent://<system>?access=edits|full`):
 `provider.AgentCLI` runs the system's non-interactive mode in the chat's folder, streams its
 text back, and keeps one session per chat (`agent-sessions.json`), so later turns resume
@@ -243,7 +246,7 @@ New RPC methods added to server and protocol:
 
 | Page | Description |
 |---|---|
-| `App.tsx` | Root shell: topbar nav (Office, Chat, Automation), chat modes, status bar |
+| `App.tsx` | Root shell: topbar nav (Agent, Code, Automation), chat modes, status bar |
 | `Chat.tsx` | SSE-streaming chat with session history |
 | `Terminal.tsx` | xterm.js renderer, tabbed sessions, spawn/select |
 | `AgentManager.tsx` | Create/edit/delete agents; provider + model selection; system prompt |
@@ -340,16 +343,16 @@ vitest run        ✓  (5 tests, 2 suites)
 - The view (`TeamworkView.tsx`, `lib/teamwork.ts graphOf`) puts the orchestras on the left — cards in columns by wave, cables that show whether work has gone through, junction knots — and the conversation in a panel on the right: the request, the plan and its box. Opening a card or a junction swaps the panel to those orchestras' chats (the player picked from a corner pill) and draws one lit cable from what is open to the panel.
 - Agent CLIs now receive Rove's system message (first message of a CLI session), and one-off questions (`ChatRequest.Ask`) run them read-only.
 
-### 17. Agent: the user's own agents, working as a team
+### 17. Agent: the user's own agents
 
-- The Agent space (internally `office`) is the user's agents (`AgentProfile`), made in Settings → Office (`OfficePanel.tsx`). The Office side list shows only them; its "+" opens the editor in Settings. A chat opened with an agent is created with `profileIds: [id]` and grouped under it by its persona badge (`profileId`).
-- An agent has a logo (`mark` = "shape:face", `color`; drawn by `AgentMark.tsx` from `lib/agentmark.ts`: 8 shapes, 5 faces, 10 colors, a default derived from its id), an optional starting character, a system prompt (`promptMode`: the character's, the character's plus additions, or `own` to replace it — the character's permissions still apply), a model from `model.list` (empty: the chat's), and permissions (`features`: nil = the defaults). `profile.upsert` checks the name, model, character and prompt mode.
+- The Agent space (internally `office`) is the user's agents (`AgentProfile`). A new one is a name and a logo (`AgentCreate.tsx`); prompt, model and permissions are edited in Settings → Agent (`OfficePanel.tsx`). The space opens the latest chat with an agent.
+- An agent has a logo (`mark` = "shape:face", `color`; drawn by `AgentMark.tsx` from `lib/agentmark.ts`): soft shapes with closed eyes at rest, which open and move while it works or under the pointer. The `run.start` event shows the work from its first moment.
+- `persona.Resolved.Identity` tells an agent who it is. Its job comes from its name, title and prompt, not from a catalog character (Teamwork keeps those); an agent with only a name that says no job asks first.
+- A question with set answers is an `ask` block at the end of a reply, shown as a card (`lib/ask.ts`, `AskCard.tsx`). It is text rather than a tool so that it works with agent CLIs too.
+- Agents do not write code: `persona.AgentMayUse` keeps `write_file`, `patch_file`, `shell` and `git_commit` from Agent chats, and they get no subagents. Agent CLIs follow, through the tools offered (section 18).
+- `internal/agentlink` gives agents `message_agent` (runs in the other agent's chat, one level deep) and `create_agent`, for when the user asks. These are Rove tools, so they reach models connected through an API, not agent CLIs.
+- `AgentProfile.Integrations` lists the MCP servers an agent may use (nil: all); `persona.Resolved.AllowIntegration` filters `mcp_<server>_*` tools.
 - `lib/office.ts` moves the old office (catalog characters picked in this browser) into agents once, and re-points those chats to them.
-- The agents work like a team (`internal/staff`, `StaffBoard.tsx`, the space's home):
-  - **Title** (`AgentProfile.Title`): what each does; colleagues and the user see it.
-  - **Tasks** (`staff.assign`): handed over without opening a chat. A task runs in the background in an Agent-space conversation of its own (persona: the agent), and its clipped report is kept (`staff_tasks`, JSON bodies). The board shows each agent working, with a report waiting, or free (`staff.members`); a finished task notifies (`staff.updated`), reading it marks it seen, a running one can be stopped, and tasks a stopped daemon left running are closed on start.
-  - **Notes** (`MemProfile` memory, the `agent_note` tool): a line the agent saves is in every later conversation it has; the user can read, add and delete them on the board.
-  - **Colleagues** (the `ask_colleague` tool): an agent hands a part of its job to another by name or title and waits for the report. One level deep: a colleague's request is done by that colleague, never passed on.
 
 ### 18. Agents that hold up
 
@@ -362,24 +365,3 @@ vitest run        ✓  (5 tests, 2 suites)
 - Every model call (a chat turn, a one-off question, a compaction) goes through `agent.metered` (`internal/agent/meter.go`): it counts what the request really sends — system prompt, history, tool definitions, pictures — and what comes back — text and tool calls — with `provider.MeasureRequest` / `AddReply` (`internal/provider/count.go`). Characters are exact; tokens are estimated from them (about 4 ASCII characters a token, 2 for accented Latin, 1 for CJK, plus framing per message and tool).
 - Each call is a row of `usage_ledger`: Rove's count (`sent_*`, `recv_*`) beside what the provider reported (`prompt_tokens`, `completion_tokens`, `cached_tokens`, `reported`), with kind, session, provider, model and duration.
 - `usage.report` (`internal/usage`) sums the ledger into local days (every day present) and models; the comparison with the providers is made only over the calls they reported on. Settings → Usage (`UsagePanel.tsx`) leads with Rove's count and shows the gap and its usual causes (hidden prompts and steps of agent CLIs, thinking tokens, cache reads).
-
-### 20. Agents on the Session Map: watches
-
-- An Agent-space agent can stand on the Session Map as a card of its own (node id `agent:<profile>`, placed with `ctxmap.place`). A cable drawn between a chat and an agent — either way — is a **watch** (`internal/staff/watch.go`, `staff.watchSave` / `staff.watches` / `staff.watchDelete`), not a chat-to-chat link.
-- When a turn in the watched chat changes files (the run hook, beside the map's own relays), the agent gets a task: the watch's instruction, the changed files that pass its filter, and what the chat's agent said. The task runs like any other (`staff.Assign`), carries `watchId` and `origin`, and reports on the Team board.
-- Guards: a file filter, a daily cap (10 by default), one running task per watch, an on/off switch, and no chains — a task's own chat never sets a watch off. Taking either card off the map removes its watches; removing the agent does too.
-- Cables are straight lines from edge to edge; one starts from anywhere on a card's edge, or from anywhere on it with ⌥.
-
-### 21. Automations set up by talking
-
-- A chat the user talks in (Code or Agent; never a subagent, a terminal pane or an agent's own task — `staff.CanAutomate`) gets five tools (`internal/staff/automate.go`): `automation_list`, `automation_watch` (an agent watches a chat), `automation_link` (a cable between two chats), `automation_schedule` and `automation_remove`. Agents and chats are found by name or title; what is set up is put on the Session Map and listed on the agent's card on the Team board, where it can be switched off or removed.
-- **Schedules** (`internal/staff/schedule.go`, `staff.schedules` / `staff.scheduleSave` / `staff.scheduleDelete`) give an agent a task every N minutes (at least 15) or every day at a local time. The engine ticks every 30 s; a run does not start while the last is still going, a daily one runs once per day, and a new one waits for its first slot.
-
-### 22. Agents that work apart, learn, connect and keep watch
-
-- **Their own checkout** (`internal/staff/isolate.go`): in a git project a task works in a worktree started from a snapshot of the user's tree (uncommitted work included) and its changes wait there (`isolation.state = review`): `staff.diff`, `staff.apply` (lands uncommitted), `staff.discard`, `staff.pr`. A PR is opened from a branch started at HEAD carrying only the task's patch — never the user's uncommitted work — pushed to `origin` and opened with the user's `gh`. A colleague's request (`AssignWait`) lands at once, since the colleague needs it. Outside git a task works in the folder as before.
-- **Learning** (`learn.go`): after each task one tool-less call asks for at most two lessons worth keeping; they become notes keyed `learned:`. Past 24 learned notes they are folded to 12. Notes the user wrote are never touched; the board marks learned ones.
-- **Integrations**: `AgentProfile.Integrations` lists the MCP servers an agent may use (nil: all). `persona.Resolved.AllowIntegration` filters `mcp_<server>_*` tools beside the feature permissions.
-- **Monitors** (`monitor.go`): a shell command checked every N minutes (≥5) in the project's folder; output lines not seen before (hashes remembered) give the agent a task, nothing new costs no tokens, the first check only learns. Presets: GitHub CI failures and new bugs (`gh`), Sentry (`sentry-cli`). Also set up from a chat with `automation_monitor`, which asks like the shell does.
-- **Handoffs** (`handoff.go`, `staff.handoffs` / `staff.handoffSave` / `staff.handoffDelete`, the `automation_handoff` tool, an agent-to-agent cable on the Session Map): when an agent finishes a task (done, not a colleague's request), each enabled handoff from it gives the next agent a task with the instruction, the report and the changed files. The next task's checkout starts from a snapshot of the previous one's and keeps its base, so its review holds both pieces of work; the previous task is marked `carried`. Chains stop at three agents and never return to one already in the chain; daily caps and one running task per handoff as with watches.
-- Map cables join cards **corner to corner** (the closest pair of corners); the side ports show only on hover.
