@@ -195,7 +195,7 @@ func TestOlderRovecodeIsReplaced(t *testing.T) {
 	tr.mu.Lock()
 	install := tr.execs[1]
 	tr.mu.Unlock()
-	if !strings.Contains(install, "pkill -u \"$(id -u)\" -f '"+filepath.Join(home, ".local/bin/rovecode")+" daemon'") {
+	if !strings.Contains(install, "pkill -u \"$(id -u)\" -f '"+filepath.Join(home, ".local/bin/[r]ovecode")+" daemon'") {
 		t.Fatalf("install script = %s", install)
 	}
 }

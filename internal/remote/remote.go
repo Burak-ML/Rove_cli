@@ -265,7 +265,11 @@ func (c *Conn) setup(ctx context.Context, progress func(string), readyWithin tim
 		// an older daemon must go before the new one starts
 		stopOld := ""
 		if bin != "" {
-			stopOld = "pkill -u \"$(id -u)\" -f " + shq(bin+" daemon") + " 2>/dev/null || true; sleep 1; "
+			// the brackets keep the pattern from matching this script's own
+			// shell, whose command line holds it: Linux's pkill would stop that too
+			name := strings.LastIndexByte(bin, '/') + 1
+			pattern := bin[:name] + "[" + bin[name:name+1] + "]" + bin[name+1:] + " daemon"
+			stopOld = "pkill -u \"$(id -u)\" -f " + shq(pattern) + " 2>/dev/null || true; sleep 1; "
 		}
 		script := stopOld + `set -e; mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/rovecode.new"; chmod 0755 "$HOME/.local/bin/rovecode.new"
