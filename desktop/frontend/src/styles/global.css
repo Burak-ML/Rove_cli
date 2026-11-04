@@ -2797,27 +2797,6 @@ g.on .usage-hit { fill: color-mix(in srgb, var(--text) 5%, transparent); }
 /* the mode picker */
 
 /* the session bar: mode (locked), title, folder */
-.session-bar {
-  flex: 0 0 auto; display: flex; align-items: center; gap: 10px; min-width: 0;
-  height: 40px; padding: 0 14px;
-  border-bottom: 1px solid var(--border); background: var(--panel); font-size: 12.5px;
-}
-.mode-chip {
-  flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px;
-  border-radius: 5px; font-size: 12px; font-weight: 560; color: var(--mc);
-  background: color-mix(in srgb, var(--mc) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--mc) 26%, transparent);
-}
-.mode-chip-lock { display: inline-flex; margin-left: 1px; opacity: 0.75; }
-.session-bar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 560; color: var(--text); }
-.session-bar-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); }
-.session-bar-spacer { flex: 1; }
-.session-bar-btn {
-  flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
-  font-size: 12px; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: 4px;
-}
-.session-bar-btn:hover { color: var(--text); background: var(--bg-hover); }
-.session-bar-ws { flex-shrink: 1; min-width: 0; max-width: 32%; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
 
 /* a session row names its mode by icon */
 .sess-mode { flex-shrink: 0; display: inline-grid; place-items: center; width: 16px; height: 16px; color: color-mix(in srgb, var(--mc, var(--side-faint)) 70%, var(--side-bg)); }
@@ -2918,7 +2897,6 @@ g.on .usage-hit { fill: color-mix(in srgb, var(--text) 5%, transparent); }
 }
 
 /* the session bar drops its note before the title runs short */
-@media (max-width: 1100px) { .session-bar-note { display: none; } }
 /* the + menu spans the list's width too, not just its button's */
 .shell-side .side-new-mode { position: static; }
 /* in a pane the hint in an empty prompt stays on one line, ending in "…" */
@@ -3221,3 +3199,23 @@ button.model-group em { margin-left: auto; font-style: normal; color: var(--fain
 .ssh-form label.wide { grid-column: 1 / -1; }
 .ssh-form input, .ssh-form select { width: 100%; box-sizing: border-box; }
 .ssh-add .con-actions { justify-content: flex-end; margin-top: 12px; }
+
+/* The Code space's tabs: open sessions, like an editor's */
+.session-tabs { flex-shrink: 0; display: flex; align-items: stretch; height: 34px; border-bottom: 1px solid var(--border); background: var(--bg); }
+.session-tabs-list { display: flex; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.session-tabs-list::-webkit-scrollbar { display: none; }
+.session-tab { position: relative; flex: 0 0 auto; display: flex; align-items: center; max-width: 210px; border-right: 1px solid var(--border); }
+.session-tab > button[role="tab"] { display: flex; align-items: center; gap: 7px; min-width: 0; height: 100%; padding: 0 26px 0 12px; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 10.5px; font-weight: 560; letter-spacing: 0.05em; text-transform: uppercase; }
+.session-tab:hover { background: var(--bg-hover); }
+.session-tab:hover > button[role="tab"] { color: var(--text); }
+.session-tab.active { background: var(--panel, var(--bg)); box-shadow: inset 0 -2px 0 var(--accent); }
+.session-tab.active > button[role="tab"] { color: var(--text); }
+.session-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-tab-dot { flex-shrink: 0; width: 5px; height: 5px; border-radius: 99px; background: var(--faint); }
+.session-tab.active .session-tab-dot { background: var(--accent); }
+.session-tab-dot.live, .session-tab.active .session-tab-dot.live { background: var(--ok); animation: tree-pulse 1.2s ease-in-out infinite; }
+.session-tab-x { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 13px; line-height: 1; opacity: 0; }
+.session-tab:hover .session-tab-x, .session-tab.active .session-tab-x, .session-tab-x:focus-visible { opacity: 1; }
+.session-tab-x:hover { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--text); }
+.session-tabs-ws { flex-shrink: 1; min-width: 0; max-width: 28%; margin-left: auto; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; color: var(--faint); font-size: 11.5px; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .session-tab-dot.live { animation: none; } }

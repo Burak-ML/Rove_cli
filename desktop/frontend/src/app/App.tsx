@@ -28,7 +28,7 @@ import {
 } from "~/lib/spaces";
 import { ModePicker } from "./ModePicker";
 import { toast } from "~/lib/toast";
-import { SessionBar } from "./SessionBar";
+import { SessionTabs } from "./SessionTabs";
 import brandMark from "~/assets/logo-256.png";
 import { watchFinishes } from "~/lib/notify";
 import { ConnectionBanner, ConnectionMenu } from "./ConnectionMenu";
@@ -421,16 +421,27 @@ export function App() {
           </div>
         );
       default: {
+        const bar = (
+          <SessionTabs
+            lang={lang}
+            session={chat.session}
+            draft={chat.draft && !chat.session}
+            workspace={workspace}
+            onSelect={(s) => selectIn("chat", s)}
+            onNew={() => newDraft("chat")}
+          />
+        );
         // nothing picked yet: the session starts by choosing its mode
         if (!chatMode) {
           return (
-            <div className="panel center-panel">
-              <ModePicker lang={lang} workspace={workspace} last={modes[LAST]} onPick={(m) => newDraft("chat", null, m)} />
-            </div>
+            <>
+              {bar}
+              <div className="panel center-panel">
+                <ModePicker lang={lang} workspace={workspace} last={modes[LAST]} onPick={(m) => newDraft("chat", null, m)} />
+              </div>
+            </>
           );
         }
-        // the mode shows, locked; there is no way to another one from here
-        const bar = <SessionBar lang={lang} mode={chatMode} session={chat.session} workspace={workspace} />;
         return <>{bar}{renderMode(chatMode)}</>;
       }
     }

@@ -308,7 +308,7 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     fireEvent.change(t1Box, { target: { value: "Terminalden merhaba" } });
     fireEvent.submit(t1Box.closest("form")!);
     await waitFor(() => expect(rows()).toHaveLength(beforeTerm + 1), { timeout: T });
-    await waitFor(() => expect(document.querySelector(".session-bar-title")?.textContent).toContain("Terminalden merhaba"), { timeout: T });
+    await waitFor(() => expect(document.querySelector(".session-tab.active")?.textContent).toContain("Terminalden merhaba"), { timeout: T });
     // the second terminal's first message opens it under the same session:
     // one row in the list, two terminals in the session
     const t2Box = document.querySelectorAll(".deck > .pane .term-textarea")[1] as HTMLTextAreaElement;
@@ -337,7 +337,7 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     fireEvent.change(paneBox("T1")!, { target: { value: "/session README" } });
     fireEvent.submit(paneBox("T1")!.closest("form")!);
     await waitFor(() => expect(paneBox("T1")!.value).toBe(""), { timeout: T });
-    expect(document.querySelector(".session-bar-title")?.textContent).toContain("Terminalden merhaba");
+    expect(document.querySelector(".session-tab.active")?.textContent).toContain("Terminalden merhaba");
     fireEvent.click(within(document.querySelector(".deck-bar") as HTMLElement).getByRole("radio", { name: /^1/ }));
 
     // 11. Automation: the map on the left, one sidebar on the right whose top
