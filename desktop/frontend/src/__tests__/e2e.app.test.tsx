@@ -129,9 +129,10 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     const agentRow = (name: string) =>
       Array.from(sidebar().querySelectorAll(".agent-chat-row")).find((r) => r.querySelector(".agent-row strong")?.textContent === name) as HTMLElement | undefined;
     const rowTitled = (title: string) => rows().find((r) => r.textContent?.includes(title)) as HTMLElement | undefined;
-    const pickMode = async (name: RegExp) => {
-      fireEvent.click(within(sidebar()).getByTitle(/Modlar/));
-      fireEvent.click(await within(document.querySelector(".modes-menu") as HTMLElement).findByRole("menuitemradio", { name }));
+    // a session's mode is picked when it starts, from the + menu, and stays
+    const newIn = async (mode: string) => {
+      fireEvent.click(within(sidebar()).getByTitle("Yeni oturum"));
+      fireEvent.click(within(await screen.findByRole("menu", { name: "Yeni oturum hangi modda?" })).getByText(mode).closest("button")!);
     };
 
     // 1. three spaces; a first launch opens Office, waiting for an agent
@@ -186,15 +187,16 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     space("Code");
     await waitFor(() => expect(sidebar().querySelector(".side-title")?.textContent).toBe("Oturumlar"), { timeout: T });
     expect(rows()).toHaveLength(0);
+    // nothing open yet: the session starts by choosing its mode
+    fireEvent.click((await screen.findByText("Orkestra", { selector: ".mode-row strong" }, { timeout: T })).closest("button")!);
     await waitFor(() => expect(composer().disabled).toBe(false), { timeout: T });
-    // a first chat opens in Orchestra: no cast over the message box
+    // Orchestra has no cast over the message box
     expect(teamBar()).toBeNull();
     await send("Giriş sayfasına Google ile oturum açma ekle. Sonra testleri çalıştır");
     await waitFor(() => expect(rows()).toHaveLength(1), { timeout: T });
     await waitFor(() => expect(rows()[0].textContent).toContain("Giriş sayfasına Google ile oturum açma ekle"), { timeout: T });
     await waitFor(() => expect(replies()).toBeGreaterThan(0), { timeout: T });
     expect(rows()[0].querySelector(".avatar")).toBeNull();
-    expect(personaChip()).toContain("Genel asistan");
     // titles change live (session.updated events), not on the 12 s poll
     const loginChat = (await list<{ id: string; title: string; space: string }>("session.list")).find((x) => x.title.startsWith("Giriş sayfasına"))!;
     expect(loginChat.space).toBe("chat");
@@ -211,14 +213,13 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     await send("Ürün sayfası tasarla");
     await waitFor(() => expect(rows()).toHaveLength(2), { timeout: T });
 
-    // 6. modes (Orchestra, Teamwork, Terminal — Chat is the space, not a mode)
-    fireEvent.click(within(sidebar()).getByTitle(/Modlar/));
-    const menuItems = within(document.querySelector(".modes-menu") as HTMLElement).getAllByRole("menuitemradio").map((b) => b.querySelector("strong")?.textContent);
+    // 6. modes (Orchestra, Teamwork, Terminal — Chat is the space, not a mode):
+    // picked for a new session, and kept by it
+    fireEvent.click(within(sidebar()).getByTitle("Yeni oturum"));
+    const menuItems = within(await screen.findByRole("menu", { name: "Yeni oturum hangi modda?" })).getAllByRole("menuitem").map((b) => b.querySelector("strong")?.textContent);
     expect(menuItems).toEqual(["Orkestra", "Teamwork", "Terminal"]);
-    fireEvent.click(within(sidebar()).getByTitle(/Modlar/));
-    // the login chat on Terminal
-    fireEvent.click(rowTitled("Canlı başlık")!.querySelector(".sess-main")!);
-    await pickMode(/Terminal/);
+    fireEvent.click(within(sidebar()).getByTitle("Yeni oturum"));
+    await newIn("Terminal");
     await waitFor(() => expect(document.querySelector(".deck")).toBeTruthy(), { timeout: T });
     expect(teamBar()).toBeNull(); // a terminal has no team bar
     // a chat opened in a mode picked from the "+" menu keeps that mode
@@ -226,22 +227,10 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     await waitFor(() => expect(sidebar().querySelector(".sess-row.active")?.textContent).toContain("Ürün sayfası tasarla"), { timeout: T });
     await waitFor(() => expect(transcript()).toContain("Ürün sayfası tasarla"), { timeout: T });
     expect(document.querySelector(".deck")).toBeNull();
-    fireEvent.click(rowTitled("Canlı başlık")!.querySelector(".sess-main")!);
-    await waitFor(() => expect(document.querySelector(".deck")).toBeTruthy(), { timeout: T });
-    fireEvent.click(rowTitled("Ürün sayfası tasarla")!.querySelector(".sess-main")!);
-    await waitFor(() => expect(transcript()).toContain("Ürün sayfası tasarla"), { timeout: T });
-    expect(document.querySelector(".deck")).toBeNull();
 
-    // 7. Orchestra has no cast: no characters to add, the chat splits its
-    // work between plain subagents on its own
-    const productChat = (await list<{ id: string; title: string }>("session.list")).find((x) => x.title === "Ürün sayfası tasarla")!;
-    expect(teamBar()).toBeNull();
-
-    // 8. Terminal and Teamwork, then back to Orchestra
-    await pickMode(/Terminal/);
-    await waitFor(() => expect(document.querySelector(".deck")).toBeTruthy(), { timeout: T });
+    // 8. Teamwork
+    await newIn("Teamwork");
     // Teamwork: give a job, see the plan as cards, nothing runs until approved
-    await pickMode(/Teamwork/);
     const ask = await screen.findByPlaceholderText(/Google ile oturum/);
     fireEvent.change(ask, { target: { value: "README dosyası yaz" } });
     fireEvent.click(screen.getByRole("button", { name: "Plan çıkar" }));
@@ -249,18 +238,18 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     // this daemon's model answers in prose: the job becomes one phase, and the note says why
     expect(document.querySelector(".tw-thread")?.textContent).toMatch(/Planlayıcı geçerli bir plan veremedi/);
     expect(document.querySelector(".tw-status")?.textContent).toBe("Onay bekliyor");
-    const drafted = await rpc<{ id: string; status: string; phases: { agents: { channelId?: string }[] }[] }>("teamwork.get", { sessionId: productChat.id });
+    const teamChat = (await list<{ id: string; title: string }>("session.list"))[0];
+    const drafted = await rpc<{ id: string; status: string; phases: { agents: { channelId?: string }[] }[] }>("teamwork.get", { sessionId: teamChat.id });
     expect(drafted.status).toBe("draft");
     expect(drafted.phases[0].agents[0].channelId ?? "").toBe(""); // no channel, no run, before approval
     fireEvent.click(screen.getByRole("button", { name: "Onayla ve başlat" }));
     await waitFor(() => expect(document.querySelector(".tw-status")?.textContent).toBe("Bitti"), { timeout: T });
     expect(document.querySelector(".tw-result")).toBeTruthy();
-    expect((await rpc<{ status: string }>("teamwork.get", { sessionId: productChat.id })).status).toBe("done");
+    expect((await rpc<{ status: string }>("teamwork.get", { sessionId: teamChat.id })).status).toBe("done");
     // the phase's channel is not a chat and not a team member
-    expect(rows()).toHaveLength(2);
-    await pickMode(/Orkestra/);
+    expect(rows()).toHaveLength(3);
+    fireEvent.click(rowTitled("Ürün sayfası tasarla")!.querySelector(".sess-main")!);
     await waitFor(() => expect(transcript()).toContain("Ürün sayfası tasarla"), { timeout: T });
-    expect(JSON.parse(localStorage.getItem("aether.chat.modes") || "{}")).toEqual({ [loginChat.id]: "terminal", [productChat.id]: "orchestra", last: "orchestra" });
 
     // 9. open a folder (a git repo), then chat in it
     const folder = join(home, "benim-projem");
@@ -273,9 +262,11 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     window.prompt = () => folder;
     fireEvent.click(within(sidebar()).getByTitle("Klasör aç"));
     fireEvent.click(await within(sidebar()).findByText(/Klasör aç…/));
+    // a new folder starts a new session, which asks its mode
+    fireEvent.click((await screen.findByText("Orkestra", { selector: ".mode-row strong" }, { timeout: T })).closest("button")!);
     await waitFor(() => expect(replies()).toBe(0), { timeout: T });
     await send("README dosyası ekle");
-    await waitFor(() => expect(rows()).toHaveLength(3), { timeout: T });
+    await waitFor(() => expect(rows()).toHaveLength(4), { timeout: T });
     await waitFor(() => expect(rows()[0].textContent).toContain(basename(folder)), { timeout: T });
     const sessions = await list<{ id: string; title: string; workspaceId: string; agentId: string }>("session.list");
     const ws = await list<{ id: string; path: string }>("workspace.list");
@@ -340,7 +331,7 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     fireEvent.change(t1Box, { target: { value: "Terminalden merhaba" } });
     fireEvent.submit(t1Box.closest("form")!);
     await waitFor(() => expect(rows()).toHaveLength(beforeTerm + 1), { timeout: T });
-    await waitFor(() => expect(document.querySelector(".deck-title")?.textContent).toContain("Terminalden merhaba"), { timeout: T });
+    await waitFor(() => expect(document.querySelector(".session-bar-title")?.textContent).toContain("Terminalden merhaba"), { timeout: T });
     // the second terminal's first message opens it under the same session:
     // one row in the list, two terminals in the session
     const t2Box = document.querySelectorAll(".deck > .pane .term-textarea")[1] as HTMLTextAreaElement;
@@ -365,11 +356,11 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
       const h = await rpc<{ role: string; content: string }[]>("session.history", { sessionId: tPanes[1].id });
       expect(h.some((m) => m.role === "user" && m.content === "testleri yaz")).toBe(true);
     }, { timeout: T });
-    // /session switches the whole deck to another session
+    // /session stays within the mode: an Orchestra chat is not offered here
     fireEvent.change(paneBox("T1")!, { target: { value: "/session README" } });
     fireEvent.submit(paneBox("T1")!.closest("form")!);
-    await waitFor(() => expect(sidebar().querySelector(".sess-row.active")?.textContent).toContain("README işi"), { timeout: T });
-    await waitFor(() => expect(document.querySelector(".deck-title")?.textContent).toContain("README işi"), { timeout: T });
+    await waitFor(() => expect(paneBox("T1")!.value).toBe(""), { timeout: T });
+    expect(document.querySelector(".session-bar-title")?.textContent).toContain("Terminalden merhaba");
     fireEvent.click(within(document.querySelector(".deck-bar") as HTMLElement).getByRole("radio", { name: /^1/ }));
 
     // 11. Automation: the map on the left, one sidebar on the right whose top
@@ -420,18 +411,20 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
       expect(b).toBeTruthy();
       return b!;
     }, { timeout: T });
-    // the Chat space's open chat is the default target; clicking toggles it
-    await waitFor(() => expect(conv.getAttribute("aria-pressed")).toBe("true"), { timeout: T });
-    fireEvent.click(conv);
+    // the Code space's open chat (the terminal) is the default target; a click
+    // on another one toggles it
     await waitFor(() => expect(conv.getAttribute("aria-pressed")).toBe("false"), { timeout: T });
     fireEvent.click(conv);
     await waitFor(() => expect(conv.getAttribute("aria-pressed")).toBe("true"), { timeout: T });
+    fireEvent.click(conv);
+    await waitFor(() => expect(conv.getAttribute("aria-pressed")).toBe("false"), { timeout: T });
 
     // 12. Office again: an agent is deleted in Settings → Office, in two
     //     clicks, and its chats go with it
     space("Agent");
     // wait for the row's chats, not just the row (chats load after agents)
     await waitFor(async () => expect(await chatTitles()).toContain("Instagram kampanyası planla"), { timeout: T });
+    await waitFor(() => expect(agentRow("Reklam & Pazarlama Uzmanı")).toBeTruthy(), { timeout: T });
     fireEvent.click(within(agentRow("Reklam & Pazarlama Uzmanı")!).getByTitle("Ajanı düzenle"));
     fireEvent.click(await screen.findByRole("button", { name: "← Agent" }, { timeout: T }));
     const adsRow = await waitFor(() => {
@@ -463,7 +456,8 @@ describe.skipIf(!E2E)("Rove app end to end", () => {
     const modelsURL = `http://127.0.0.1:${(models.address() as { port: number }).port}/v1`;
     fireEvent.click(within(sidebar()).getByTitle("Ayarlar"));
     fireEvent.click(await screen.findByRole("button", { name: /Sağlayıcılar/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /Ekle/ }));
+    await waitFor(() => expect(document.querySelector(".con-title-row .primary")).toBeTruthy(), { timeout: T });
+    fireEvent.click(document.querySelector(".con-title-row .primary")!);
     fireEvent.click(await screen.findByRole("button", { name: /Özel sağlayıcı/ }, { timeout: T }));
     fireEvent.change(await screen.findByPlaceholderText("my-provider"), { target: { value: "qwen" } });
     fireEvent.change(screen.getByPlaceholderText("https://api.example.com/v1"), { target: { value: modelsURL } });
