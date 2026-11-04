@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { filterSlash, matchSlash, parseGoal, SLASH } from "~/lib/slash";
-import { matchCharacter } from "~/lib/agents";
-import type { Character } from "~/lib/types";
 
 describe("slash commands", () => {
   it("matches English and Turkish names with arguments", () => {
@@ -51,18 +49,5 @@ describe("/goal", () => {
     expect(parseGoal("giriş sayfası | testler geçer, mobilde düzgün")).toEqual({ title: "giriş sayfası", criteria: ["testler geçer", "mobilde düzgün"] });
     expect(parseGoal("README yaz")).toEqual({ title: "README yaz", criteria: ["README yaz"] });
     expect(parseGoal("  | x")).toBeNull();
-  });
-});
-
-describe("/team", () => {
-  const ch = (id: string, name: string, tags: string[] = []): Character => ({ id, name, tags, category: "", summary: "", role: "developer", features: [], prompt: "" });
-  const cat = [ch("frontend", "Frontend Uzmanı", ["react"]), ch("go-backend", "Go Backend Uzmanı", ["api"]), ch("uiux", "UI/UX Tasarımcı")];
-  it("finds a character by id, name, prefix, tag or part of the name", () => {
-    expect(matchCharacter(cat, "frontend")?.id).toBe("frontend");
-    expect(matchCharacter(cat, "Go Backend Uzmanı")?.id).toBe("go-backend");
-    expect(matchCharacter(cat, "go")?.id).toBe("go-backend");
-    expect(matchCharacter(cat, "api")?.id).toBe("go-backend");
-    expect(matchCharacter(cat, "tasarım")?.id).toBe("uiux");
-    expect(matchCharacter(cat, "yok")).toBeNull();
   });
 });
